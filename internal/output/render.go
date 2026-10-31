@@ -4,6 +4,7 @@ package output
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
@@ -25,11 +26,41 @@ func Valid(format string) bool {
 // Render buffers small writes and reports both encoder and final flush errors.
 // DNS exports are encoded one record at a time, without rebuilding the dataset.
 func Render(w io.Writer, format string, value any, safe bool) error {
-	buffered := bufio.NewWriterSize(w, 32<<10)
-	if err := render(buffered, format, value, safe); err != nil {
+	return RenderContext(context.Background(), w, format, value, safe)
+}
+
+func RenderContext(ctx context.Context, w io.Writer, format string, value any, safe bool) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	buffered := bufio.NewWriterSize(contextWriter{ctx, w}, 32<<10)
+	if err := render(contextWriter{ctx, buffered}, format, value, safe); err != nil {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
 		return err
 	}
 	return buffered.Flush()
+}
+
+// Cancellation is checked between writes, without spawning a goroutine that
+// could outlive a caller-owned writer blocked in an OS operation.
+type contextWriter struct {
+	ctx context.Context
+	out io.Writer
+}
+
+func (w contextWriter) Write(p []byte) (int, error) {
+	if err := w.ctx.Err(); err != nil {
+		return 0, err
+	}
+	return w.out.Write(p)
+}
+func (w contextWriter) WriteString(s string) (int, error) {
+	if err := w.ctx.Err(); err != nil {
+		return 0, err
+	}
+	return io.WriteString(w.out, s)
 }
 func render(w io.Writer, format string, value any, safe bool) error {
 	if records, zone, ok := recordValues(value); ok {

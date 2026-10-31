@@ -53,6 +53,7 @@ func (c *Client) ListRecords(ctx context.Context, id string, q dns.Query, maxByt
 	var total int64
 	seen := map[string]json.RawMessage{}
 	records := []dns.Record{}
+	pagination := pageTracker{}
 	for page := 1; ; page++ {
 		p.Page.Value = float64(page)
 		p.Page.Present = true
@@ -60,7 +61,7 @@ func (c *Client) ListRecords(ctx context.Context, id string, q dns.Query, maxByt
 		if err != nil {
 			return nil, failure(ctx, m, err)
 		}
-		last, err := lastPage(m, page, len(batch.Result))
+		last, err := pagination.observe(m.info, page, len(batch.Result))
 		if err != nil {
 			return nil, err
 		}
@@ -88,6 +89,9 @@ func (c *Client) ListRecords(ctx context.Context, id string, q dns.Query, maxByt
 			}
 		}
 		if last {
+			if err := pagination.complete(len(seen)); err != nil {
+				return nil, err
+			}
 			break
 		}
 		if fresh == 0 {

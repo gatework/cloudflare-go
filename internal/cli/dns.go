@@ -188,16 +188,19 @@ func (a *app) records(cmd *cobra.Command, args []string, action string, f *recor
 			if err != nil {
 				return err
 			}
-			return a.render(text, true, p)
+			if int64(len(text)) > a.maxBytes {
+				return fmt.Errorf("BIND 结果超过 --max-bytes")
+			}
+			return a.render(ctx, text, true, p)
 		}
 		records, err := api.ListRecords(ctx, zone.ID, query, a.maxBytes)
 		if err != nil {
 			return err
 		}
 		if action == "list" {
-			return a.render(records, false, p)
+			return a.render(ctx, records, false, p)
 		}
-		return a.render(dns.Dump{SchemaVersion: 1, ExportedAt: time.Now().UTC(), Zone: zone, Query: query, Records: records}, true, p)
+		return a.render(ctx, dns.Dump{SchemaVersion: 1, ExportedAt: time.Now().UTC(), Zone: zone, Query: query, Records: records}, true, p)
 	}
 	selector := dns.Selector{Query: query, ID: f.id}
 	selector.Exact = true
@@ -206,7 +209,7 @@ func (a *app) records(cmd *cobra.Command, args []string, action string, f *recor
 		if err != nil {
 			return err
 		}
-		return a.render(record, false, p)
+		return a.render(ctx, record, false, p)
 	}
 	if action == "create" && domain == "" {
 		return usage("创建记录需要名称")
@@ -249,7 +252,7 @@ func (a *app) records(cmd *cobra.Command, args []string, action string, f *recor
 		}
 	}
 	if f.dryRun {
-		return a.render(change, false, p)
+		return a.render(ctx, change, false, p)
 	}
 	// Reserve the output before a mutation, so a missing/unwritable parent
 	// directory cannot cause a successful DNS change followed by a local failure.
@@ -277,12 +280,12 @@ func (a *app) records(cmd *cobra.Command, args []string, action string, f *recor
 		return err
 	}
 	if destination != nil {
-		err = output.Render(destination, a.formatFor(false, p), value, a.spreadsheet)
+		err = output.RenderContext(ctx, destination, a.formatFor(false, p), value, a.spreadsheet)
 		if err == nil {
-			err = destination.Commit()
+			err = destination.CommitContext(ctx)
 		}
 	} else {
-		err = a.render(value, false, p)
+		err = a.render(ctx, value, false, p)
 	}
 	if err != nil {
 		return fmt.Errorf("DNS %s 已成功，但结果输出失败；请查询记录确认：%w", action, err)

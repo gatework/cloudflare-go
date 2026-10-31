@@ -28,6 +28,7 @@ func (c *Client) ListZones(ctx context.Context, name, account string) ([]dns.Zon
 	}
 	out := []dns.Zone{}
 	seen := map[string]dns.Zone{}
+	pagination := pageTracker{}
 	for page := 1; ; page++ {
 		p.Page.Value = float64(page)
 		p.Page.Present = true
@@ -35,7 +36,7 @@ func (c *Client) ListZones(ctx context.Context, name, account string) ([]dns.Zon
 		if err != nil {
 			return nil, failure(ctx, m, err)
 		}
-		last, err := lastPage(m, page, len(batch.Result))
+		last, err := pagination.observe(m.info, page, len(batch.Result))
 		if err != nil {
 			return nil, err
 		}
@@ -58,6 +59,9 @@ func (c *Client) ListZones(ctx context.Context, name, account string) ([]dns.Zon
 			}
 		}
 		if last {
+			if err := pagination.complete(len(seen)); err != nil {
+				return nil, err
+			}
 			break
 		}
 		if fresh == 0 {

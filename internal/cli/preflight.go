@@ -1,0 +1,70 @@
+package cli
+
+import (
+	"strings"
+	"time"
+	"unicode/utf8"
+
+	"github.com/gatework/cloudflare-go/internal/config"
+	"github.com/gatework/cloudflare-go/internal/dns"
+	"github.com/spf13/cobra"
+)
+
+// Validate what is known locally before selecting credentials or calling APIs.
+func (a *app) preflight(cmd *cobra.Command, args []string) error {
+	for _, arg := range args {
+		if arg == "" || !utf8.ValidString(arg) {
+			return usage("位置参数必须是非空 UTF-8 文本")
+		}
+	}
+	if cmd.Flags().Changed("timeout") && a.timeout < time.Millisecond || a.maxBytes < 1 {
+		return usage("timeout 和 max-bytes 必须大于零")
+	}
+	if err := a.validateOutput(); err != nil {
+		return err
+	}
+	format := a.formatFor(cmd.Name() == "dump", config.Profile{})
+	if format == "bind" && cmd.CommandPath() != "cloudflare-go dns dump" {
+		return usage("BIND 格式仅支持整 Zone dump")
+	}
+	if a.spreadsheet && (a.format != "" || a.output != "") && format != "csv" {
+		return usage("spreadsheet-safe 只用于 CSV")
+	}
+	for _, name := range []string{"id", "zone-id"} {
+		if cmd.Flags().Changed(name) {
+			value, _ := cmd.Flags().GetString(name)
+			if !config.ValidID(value) {
+				return usage(name + " 应为 32 位十六进制 ID")
+			}
+		}
+	}
+	if cmd.Flags().Changed("type") {
+		values, _ := cmd.Flags().GetStringSlice("type")
+		if len(values) == 0 {
+			return usage("type 不能为空")
+		}
+		if (cmd.Name() == "create" || cmd.Name() == "update") && len(values) != 1 {
+			return usage("单条写入只允许一种 type")
+		}
+		for _, value := range values {
+			if _, err := dns.Type(value); err != nil {
+				return &usageError{err}
+			}
+		}
+	}
+	if cmd.Flags().Changed("file") {
+		value, _ := cmd.Flags().GetString("file")
+		if value == "" {
+			return usage("file 路径不能为空")
+		}
+		for _, flag := range strings.Fields("content content-file ttl proxied comment tag clear-tags new-name target params priority weight port caa-flags caa-tag caa-value") {
+			if cmd.Flags().Changed(flag) {
+				return usage("--file 不能与 --" + flag + " 混用")
+			}
+		}
+	}
+	if cmd.Flags().Changed("content") && cmd.Flags().Changed("content-file") {
+		return usage("content 与 content-file 互斥")
+	}
+	return nil
+}

@@ -1,6 +1,7 @@
 package fileio
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -61,10 +62,20 @@ func (o *Output) Close() error {
 }
 
 func (o *Output) Commit() error {
+	return o.CommitContext(context.Background())
+}
+
+func (o *Output) CommitContext(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if err := o.file.Sync(); err != nil {
 		return err
 	}
 	if err := o.file.Close(); err != nil {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
 		return err
 	}
 	var err error

@@ -87,7 +87,7 @@ func TestPaginationBoundaryAndDedup(t *testing.T) {
 		if page == "2" {
 			records += `,{"id":"2","type":"TXT","name":"a.example.com","content":"child","ttl":1},{"id":"3","type":"TXT","name":"notexample.com","content":"outside","ttl":1}`
 		}
-		fmt.Fprintf(w, `{"success":true,"result":[%s],"result_info":{"page":%s,"per_page":100,"total_pages":2,"total_count":4}}`, records, map[bool]string{true: "2", false: "1"}[page == "2"])
+		fmt.Fprintf(w, `{"success":true,"result":[%s],"result_info":{"page":%s,"per_page":100,"total_pages":2,"total_count":3}}`, records, map[bool]string{true: "2", false: "1"}[page == "2"])
 	}))
 	defer server.Close()
 	client := New("token", server.URL+"/", server.Client().Transport)

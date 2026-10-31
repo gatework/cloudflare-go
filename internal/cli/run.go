@@ -84,7 +84,10 @@ func (a *app) execute(ctx context.Context, args []string) int {
 }
 func (a *app) command() *cobra.Command {
 	root := &cobra.Command{Use: "cloudflare-go", Short: "Cloudflare DNS 记录管理与完整导出", SilenceErrors: true, SilenceUsage: true, RunE: func(c *cobra.Command, _ []string) error { return c.Help() }}
-	root.PersistentPreRunE = func(cmd *cobra.Command, _ []string) error {
+	root.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {
+		if err := a.preflight(cmd, args); err != nil {
+			return err
+		}
 		a.explicitConfig = cmd.Flags().Changed("config")
 		if a.path == "" && !cmd.HasSubCommands() && cmd.Name() != "version" {
 			return usage("无法定位配置文件，请通过 --config 指定路径")
@@ -209,7 +212,7 @@ func (a *app) formatFor(dump bool, p config.Profile) string {
 	}
 	return format
 }
-func (a *app) render(value any, dump bool, p config.Profile) error {
+func (a *app) render(ctx context.Context, value any, dump bool, p config.Profile) error {
 	format := a.formatFor(dump, p)
 	if !output.Valid(format) {
 		return usage("format 应为 table、txt、csv、json 或 bind")
@@ -217,11 +220,19 @@ func (a *app) render(value any, dump bool, p config.Profile) error {
 	if a.spreadsheet && format != "csv" {
 		return usage("spreadsheet-safe 只用于 CSV")
 	}
-	encode := func(w io.Writer) error { return output.Render(w, format, value, a.spreadsheet) }
+	encode := func(w io.Writer) error { return output.RenderContext(ctx, w, format, value, a.spreadsheet) }
 	if a.output == "" {
 		return encode(a.out)
 	}
-	return fileio.Publish(a.output, a.overwrite, encode)
+	destination, err := fileio.NewOutput(a.output, a.overwrite)
+	if err != nil {
+		return err
+	}
+	defer destination.Close()
+	if err := encode(destination); err != nil {
+		return err
+	}
+	return destination.CommitContext(ctx)
 }
 func (a *app) confirm(ctx context.Context, text string) error {
 	if !a.interactive {

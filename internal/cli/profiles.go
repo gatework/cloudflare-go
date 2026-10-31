@@ -167,7 +167,7 @@ func (a *app) addProfiles(root *cobra.Command) {
 	initCmd.Flags().BoolVar(&makeDefault, "default", false, "设为默认配置")
 	root.AddCommand(initCmd)
 	profile := commandGroup("profile", "管理命名配置")
-	profile.AddCommand(&cobra.Command{Use: "list", Args: cobra.NoArgs, RunE: func(*cobra.Command, []string) error {
+	profile.AddCommand(&cobra.Command{Use: "list", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
 		c, err := a.loadConfig(false)
 		if err != nil {
 			return &usageError{err}
@@ -181,9 +181,9 @@ func (a *app) addProfiles(root *cobra.Command) {
 		for _, name := range names {
 			rows = append(rows, map[string]any{"name": name, "default": name == c.DefaultProfile, "profile": c.Profiles[name]})
 		}
-		return a.render(rows, false, config.Profile{})
+		return a.render(cmd.Context(), rows, false, config.Profile{})
 	}})
-	profile.AddCommand(&cobra.Command{Use: "show [NAME]", Args: cobra.MaximumNArgs(1), RunE: func(_ *cobra.Command, args []string) error {
+	profile.AddCommand(&cobra.Command{Use: "show [NAME]", Args: cobra.MaximumNArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
 		name := a.profile
 		if len(args) > 0 {
 			name = args[0]
@@ -202,10 +202,10 @@ func (a *app) addProfiles(root *cobra.Command) {
 		if !ok {
 			return usage("profile 不存在")
 		}
-		return a.render(map[string]any{"name": name, "profile": p}, false, config.Profile{})
+		return a.render(cmd.Context(), map[string]any{"name": name, "profile": p}, false, config.Profile{})
 	}})
 	for _, action := range []string{"use", "remove"} {
-		profile.AddCommand(&cobra.Command{Use: action + " NAME", Args: cobra.ExactArgs(1), RunE: func(_ *cobra.Command, args []string) error {
+		profile.AddCommand(&cobra.Command{Use: action + " NAME", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
 			return config.Update(a.path, func(c *config.Config) error {
 				if _, ok := c.Profiles[args[0]]; !ok {
 					return usage("profile 不存在")
@@ -225,13 +225,13 @@ func (a *app) addProfiles(root *cobra.Command) {
 	root.AddCommand(profile)
 	group := commandGroup("config", "查看并检查本地配置（不连接 API）")
 	for _, action := range []string{"show", "check"} {
-		group.AddCommand(&cobra.Command{Use: action, Args: cobra.NoArgs, RunE: func(*cobra.Command, []string) error {
+		group.AddCommand(&cobra.Command{Use: action, Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
 			c, err := a.loadConfig(true)
 			if err != nil {
 				return &usageError{err}
 			}
 			if action == "show" {
-				return a.render(c, false, config.Profile{})
+				return a.render(cmd.Context(), c, false, config.Profile{})
 			}
 			for _, p := range c.Profiles {
 				if p.DefaultZone != "" {

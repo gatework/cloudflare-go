@@ -129,12 +129,15 @@ func ValidatePatch(p RecordPatch, create bool, zone, existingType string) error 
 		}
 	}
 	if raw, ok := p["tags"]; ok {
-		var tags []string
+		var tags []*string
 		if json.Unmarshal(raw, &tags) != nil || tags == nil {
 			return errors.New("tags 需要字符串数组")
 		}
 		for _, tag := range tags {
-			if strings.IndexFunc(tag, unicode.IsControl) >= 0 {
+			if tag == nil {
+				return errors.New("tags 不接受 null 元素")
+			}
+			if strings.IndexFunc(*tag, unicode.IsControl) >= 0 {
 				return errors.New("标签包含控制字符")
 			}
 		}

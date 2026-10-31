@@ -26,7 +26,7 @@ func (a *app) addZones(root *cobra.Command) {
 		if err != nil {
 			return err
 		}
-		return a.render(zones, false, p)
+		return a.render(ctx, zones, false, p)
 	}})
 	group.AddCommand(&cobra.Command{Use: "get [DOMAIN]", Args: cobra.MaximumNArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
 		if err := a.validateOutput(); err != nil {
@@ -66,7 +66,7 @@ func (a *app) addZones(root *cobra.Command) {
 		if err != nil {
 			return err
 		}
-		return a.render(zone, false, p)
+		return a.render(ctx, zone, false, p)
 	}})
 	root.AddCommand(group)
 }

@@ -6,18 +6,19 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"mime"
 	"net/http"
 	"strings"
+	"unicode/utf8"
 )
 
 type metadataKey struct{}
 type metadata struct {
-	status     int
-	codes      []int
-	requestID  string
-	totalPages int
-	page       int
-	apiError   bool
+	status    int
+	codes     []int
+	requestID string
+	info      pageInfo
+	apiError  bool
 }
 type transport struct{ base http.RoundTripper }
 
@@ -61,11 +62,8 @@ func (t transport) RoundTrip(request *http.Request) (*http.Response, error) {
 	var envelope struct {
 		Success *bool       `json:"success"`
 		Result  resultShape `json:"result"`
-		Info    struct {
-			TotalPages int `json:"total_pages"`
-			Page       int `json:"page"`
-		} `json:"result_info"`
-		Errors []struct {
+		Info    pageInfo    `json:"result_info"`
+		Errors  []struct {
 			Code int `json:"code"`
 		} `json:"errors"`
 	}
@@ -74,13 +72,25 @@ func (t transport) RoundTrip(request *http.Request) (*http.Response, error) {
 		m.status = response.StatusCode
 		m.requestID = response.Header.Get("Cf-Ray")
 		m.codes = nil
-		m.totalPages, m.page = envelope.Info.TotalPages, envelope.Info.Page
+		m.info = envelope.Info
 		for _, e := range envelope.Errors {
 			m.codes = append(m.codes, e.Code)
 		}
 		m.apiError = decodeErr == nil && envelope.Success != nil && !*envelope.Success && len(envelope.Errors) > 0
 	}
-	if response.StatusCode >= 200 && response.StatusCode < 300 && !strings.HasSuffix(request.URL.Path, "/export") {
+	if response.StatusCode < 200 || response.StatusCode >= 300 && response.StatusCode < 400 {
+		return nil, protocolError(m)
+	}
+	if strings.HasSuffix(request.URL.Path, "/export") && response.StatusCode < 400 {
+		media, _, err := mime.ParseMediaType(response.Header.Get("Content-Type"))
+		trimmed := bytes.TrimSpace(data)
+		// This is an opaque BIND document, not a JSON envelope or proxy page.
+		if err != nil || media != "text/plain" || response.StatusCode != http.StatusOK || len(trimmed) == 0 || !utf8.Valid(data) || bytes.IndexByte(data, 0) >= 0 || trimmed[0] == '<' || json.Valid(trimmed) {
+			return nil, protocolError(m)
+		}
+		return response, nil
+	}
+	if response.StatusCode >= 200 && response.StatusCode < 300 {
 		if decodeErr != nil || envelope.Success == nil || !*envelope.Success {
 			_ = response.Body.Close()
 			return nil, protocolError(m)
@@ -103,17 +113,6 @@ func protocolError(m *metadata) error {
 	return &Error{Status: m.status, Codes: m.codes, RequestID: m.requestID, Kind: "protocol"}
 }
 
-// An empty page before the advertised end is incomplete, not a successful dump.
-// When pagination metadata is absent, continue until an empty page is observed.
-func lastPage(m *metadata, page, count int) (bool, error) {
-	if m.page < 0 || m.totalPages < 0 || m.page != 0 && m.page != page || m.totalPages > 0 && page > m.totalPages {
-		return false, errors.New("API 分页编号不一致")
-	}
-	if count == 0 && m.totalPages > page {
-		return false, errors.New("API 在最后一页前返回空页，结果不完整")
-	}
-	return count == 0 || m.totalPages > 0 && page == m.totalPages, nil
-}
 func callContext(ctx context.Context) (context.Context, *metadata) {
 	m := &metadata{}
 	return context.WithValue(ctx, metadataKey{}, m), m
