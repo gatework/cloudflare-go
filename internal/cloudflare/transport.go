@@ -17,8 +17,22 @@ type metadata struct {
 	requestID  string
 	totalPages int
 	page       int
+	apiError   bool
 }
 type transport struct{ base http.RoundTripper }
+
+// Only the envelope's result shape is needed here. Retaining another copy of
+// every record duplicates a full page before the SDK even starts decoding it.
+type resultShape byte
+
+func (s *resultShape) UnmarshalJSON(data []byte) error {
+	data = bytes.TrimSpace(data)
+	if len(data) == 0 {
+		return errors.New("API result 为空")
+	}
+	*s = resultShape(data[0])
+	return nil
+}
 
 func (t transport) CloseIdleConnections() {
 	if closer, ok := t.base.(interface{ CloseIdleConnections() }); ok {
@@ -45,8 +59,8 @@ func (t transport) RoundTrip(request *http.Request) (*http.Response, error) {
 	}
 	response.Body = io.NopCloser(bytes.NewReader(data))
 	var envelope struct {
-		Success *bool           `json:"success"`
-		Result  json.RawMessage `json:"result"`
+		Success *bool       `json:"success"`
+		Result  resultShape `json:"result"`
 		Info    struct {
 			TotalPages int `json:"total_pages"`
 			Page       int `json:"page"`
@@ -64,9 +78,10 @@ func (t transport) RoundTrip(request *http.Request) (*http.Response, error) {
 		for _, e := range envelope.Errors {
 			m.codes = append(m.codes, e.Code)
 		}
+		m.apiError = decodeErr == nil && envelope.Success != nil && !*envelope.Success && len(envelope.Errors) > 0
 	}
 	if response.StatusCode >= 200 && response.StatusCode < 300 && !strings.HasSuffix(request.URL.Path, "/export") {
-		if decodeErr != nil || envelope.Success == nil || !*envelope.Success || len(envelope.Result) == 0 || bytes.Equal(envelope.Result, []byte("null")) {
+		if decodeErr != nil || envelope.Success == nil || !*envelope.Success {
 			_ = response.Body.Close()
 			return nil, protocolError(m)
 		}
@@ -74,7 +89,7 @@ func (t transport) RoundTrip(request *http.Request) (*http.Response, error) {
 		if request.Method == http.MethodGet && (strings.HasSuffix(request.URL.Path, "/zones") || strings.HasSuffix(request.URL.Path, "/dns_records")) {
 			want = '['
 		}
-		if bytes.TrimSpace(envelope.Result)[0] != want {
+		if byte(envelope.Result) != want {
 			return nil, protocolError(m)
 		}
 	}
@@ -114,5 +129,9 @@ func failure(ctx context.Context, m *metadata, err error) error {
 	if errors.As(err, &own) {
 		return own
 	}
-	return &Error{Status: m.status, Codes: m.codes, RequestID: m.requestID, Kind: "api/network"}
+	kind := "network/protocol"
+	if m.apiError {
+		kind = "api"
+	}
+	return &Error{Status: m.status, Codes: m.codes, RequestID: m.requestID, Kind: kind}
 }

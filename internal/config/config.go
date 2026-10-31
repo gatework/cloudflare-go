@@ -33,7 +33,10 @@ func ValidProfile(name string) bool { return namePattern.MatchString(name) }
 func ValidID(id string) bool        { return idPattern.MatchString(id) }
 func DefaultPath() (string, error) {
 	dir, err := os.UserConfigDir()
-	return filepath.Join(dir, "cloudflare-go", "config.json"), err
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "cloudflare-go", "config.json"), nil
 }
 func Decode(data []byte) (Config, error) {
 	var c Config
@@ -97,13 +100,22 @@ func Decode(data []byte) (Config, error) {
 }
 func Load(path string) (Config, error) {
 	data, err := fileio.ReadRegularFile(path, 1<<20)
-	if errors.Is(err, os.ErrNotExist) {
-		return Config{Profiles: map[string]Profile{}}, nil
-	}
 	if err != nil {
 		return Config{}, err
 	}
 	return Decode(data)
+}
+
+// LoadOptional allows first use without a default config. An existing but
+// dangling symlink is a broken configuration, not permission to change identity.
+func LoadOptional(path string) (Config, error) {
+	c, err := Load(path)
+	if errors.Is(err, os.ErrNotExist) {
+		if _, statErr := os.Lstat(path); errors.Is(statErr, os.ErrNotExist) {
+			return Config{Profiles: map[string]Profile{}}, nil
+		}
+	}
+	return c, err
 }
 func (c Config) Select(name, base string) (Profile, error) {
 	if name == "" {
@@ -131,7 +143,7 @@ func Update(path string, change func(*Config) error) error {
 		return err
 	}
 	defer unlock()
-	c, err := Load(path)
+	c, err := LoadOptional(path)
 	if err != nil {
 		return err
 	}

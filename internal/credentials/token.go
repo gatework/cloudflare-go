@@ -5,13 +5,14 @@ import (
 	"os"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/gatework/cloudflare-go/internal/fileio"
 )
 
 func Validate(token string) (string, error) {
 	token = strings.TrimSpace(token)
-	if token == "" || len(token) > 8192 || strings.IndexFunc(token, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) }) >= 0 {
+	if token == "" || len(token) > 8192 || !utf8.ValidString(token) || strings.IndexFunc(token, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) }) >= 0 {
 		return "", errors.New("凭据为空或格式无效，请检查 Cloudflare Token")
 	}
 	return token, nil

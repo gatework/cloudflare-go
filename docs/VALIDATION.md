@@ -2,7 +2,7 @@
 
 本地：`go test ./...`、`go test -race -timeout 5m ./...`、`go vet ./...`、`python3 -m unittest discover -s scripts -p 'test_*.py'`。
 
-导出基准：`make bench`。固定 1,000 条、每条 1 KiB TXT 内容，测量已经收集的记录在四种格式下的编码耗时与分配量。CI 保存 `export-benchmark` 附件，供相同环境下比较；共享 runner 的耗时波动不作为硬性发布门槛。[首轮审查报告](REVIEW.md)包含基线、改进结果与测量边界。
+基准：`make bench`。导出测试固定 1,000 条、每条 1 KiB TXT 内容；传输测试固定一页 100 条，测量响应校验。CI 保存 `export-benchmark` 附件，供相同环境下比较；共享 runner 的耗时波动不作为硬性发布门槛。[首轮](REVIEW.md)与[第二轮审查报告](REVIEW-2.md)包含基线、改进结果与测量边界。
 
 测试使用本地 HTTP 假服务，验证实际官方 SDK 请求的 Bearer 认证、POST/PATCH/DELETE、原始 JSON 保留、精确 false、分页、重试和错误脱敏。CLI 测试通过整个命令/API/输出链路验证 dry-run、CRUD、冲突、删除确认、dump 和 profile 更新。名称、配置与 JSON 解析器提供 fuzz 入口。
 
@@ -15,6 +15,8 @@ gh attestation verify cloudflare-go_v0.1.0_linux_amd64.tar.gz --repo gatework/cl
 ```
 
 每个包包含二进制、配置示例、文档、CHANGELOG、go.mod/go.sum、构建元数据和依赖许可证。源码标签不可移动，公开附件不可覆盖。上传中断可以重跑，只补齐缺失附件；未知附件、内容不一致或标签移动会停止发布。
+
+打包要求指定提交与 HEAD 一致、已跟踪文件没有未提交改动。构建与文件收集均使用独立 Git 快照，工作目录中的未跟踪/忽略文件不参与构建或进入归档；`GOWORK=off` 排除父目录 workspace 对依赖的影响。普通开发构建可继续使用 `make build`。
 
 macOS 为未公证的 Go 单文件程序；Linux CGO_ENABLED=0，归档验证拒绝带动态解释器的 ELF。测试不声称已执行真实生产 DNS 写入，也不把 API 查询分页当作事务快照。真实写入验收仅可通过显式启用的测试 Zone 集成测试执行。
 

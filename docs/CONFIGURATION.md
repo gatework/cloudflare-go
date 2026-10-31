@@ -19,6 +19,8 @@
 
 profile 选择：`--profile` → `CLOUDFLARE_PROFILE` → `default_profile`。没有 profile 时可直接使用 `CLOUDFLARE_API_TOKEN`。凭据选择：`--token-file` → 所选 profile 的 token_file/token_env → 没有显式来源时的 `CLOUDFLARE_API_TOKEN`。所选 profile 的文件失效时不静默回退到其他账号的环境 Token。文件与环境变量来源互斥；相对文件路径相对配置文件目录。
 
+显式 `--config` 必须指向已有文件，只有 `init` 可创建；`config show/check` 也要求文件存在。隐式默认路径不存在时可直接使用环境 Token，但失效的配置符号链接会报错。显式空的 config/profile/token-file/token-env/zone/zone-id/id/type/format/output/file 参数不触发默认值回退；`--timeout 0` 是错误。没有 HOME/XDG 配置目录的环境仍支持 help/version 和显式 `--config`。
+
 字段名保持领域含义，不接受 API Token 明文属性、重复属性或未知属性。profile 名称为 1–64 个字母数字、下划线或连字符，以字母数字开头。`init` 修改所选 profile 时保留其他 profile 和未指定的可选设置。`profile remove` 只删除配置引用，不删除外部凭据文件。
 
 配置字段必须使用文档中的准确拼写；profile 名称区分大小写。JSON 输入最多嵌套 128 层。`init --token-file` 的相对路径以当前工作目录为基准；配置内已有相对路径仍以配置目录为基准。初始化期间同一 profile 被另一个进程修改时返回冲突，保留较新的配置。
@@ -39,6 +41,8 @@ profile 选择：`--profile` → `CLOUDFLARE_PROFILE` → `default_profile`。�
 
 记录名称支持 Unicode→Punycode、大小写归一化和末尾点规范化；记录所有者名称允许下划线及最左通配符，Zone 与普通主机目标不允许。`@` 和单标签简写需要指定/配置 Zone；多标签名称按 FQDN 处理，不猜测其是否为相对名称。ID 需要 32 位十六进制。
 
+ASCII 记录标签内的下划线不限于前缀；`。`、`．`、`｡` 按 IDNA 规则转换为点号。IPv6 写入内容使用规范化表示，降低等价写法造成的重复记录误判。`content-file` 和文本参数要求有效 UTF-8，不用替换字符修复输入。
+
 查询的多个条件按 AND 组合，多个 `--type` 按 OR 组合。update 的 `--content/--proxied` 是新值；筛选原记录内容使用 `--match-content`。单条写入只允许一个类型选择。
 
 JSON 结果：list 为数组，get/create/update 为单条 API 记录，delete 为 `{id,deleted}`，dry-run 为 `{action,zone,record_id?,before?,changes?}`。dump 为：
@@ -52,3 +56,5 @@ CSV 固定列：zone_id、zone_name、id、type、name、content、ttl、proxied
 每次响应限制 16 MiB、每页请求 100 条；显式分页持续传递原 context，验证分页前进，不固定截断页数。GET 最多重试两次；POST/PATCH/DELETE 不自动重试。单次 HTTP 请求 30 秒，不接受 HTTP 重定向。
 
 提前出现的空页、页码异常、同 ID 数据变化、响应对象类型错误以及详情/修改/删除返回错误 ID 都会报错。单类型、代理状态与内容条件会同时交给 API 筛选，并继续在本地检查大小写精确内容和 DNS 标签边界；多个类型仍按本地 OR 筛选。
+
+HTTP 错误只有具备有效 Cloudflare 错误结构时才能被识别为明确拒绝。删除核对只接受 HTTP 404 加 Cloudflare 错误码 81044（记录不存在）；代理 HTML、未知路由和其他 404 不能证明记录已删除，继续返回结果不确定。

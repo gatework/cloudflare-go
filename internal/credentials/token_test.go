@@ -24,7 +24,7 @@ func TestCredentialSources(t *testing.T) {
 	if err != nil || token != "rotated" {
 		t.Fatal(err)
 	}
-	for _, bad := range []string{"", "space inside", "newline\ninside"} {
+	for _, bad := range []string{"", "space inside", "newline\ninside", "invalid\xff"} {
 		if _, err = Validate(bad); err == nil {
 			t.Fatal("invalid token accepted")
 		}

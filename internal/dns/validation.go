@@ -11,52 +11,7 @@ import (
 	"unicode"
 
 	"github.com/gatework/cloudflare-go/internal/fileio"
-	"golang.org/x/net/idna"
 )
-
-func Within(name, zone string) bool { return name == zone || strings.HasSuffix(name, "."+zone) }
-func Name(value, zone string, record bool) (string, error) {
-	value = strings.TrimSuffix(strings.TrimSpace(value), ".")
-	if value == "@" {
-		value = zone
-	}
-	if !strings.Contains(value, ".") && zone != "" && value != "" {
-		value += "." + zone
-	}
-	labels := strings.Split(strings.ToLower(value), ".")
-	for i, label := range labels {
-		if record && label == "*" && i == 0 {
-			continue
-		}
-		prefix := ""
-		if record {
-			prefix = label[:len(label)-len(strings.TrimLeft(label, "_"))]
-			label = strings.TrimLeft(label, "_")
-		}
-		if label == "" {
-			return "", errors.New("DNS 名称包含空标签")
-		}
-		ascii, err := idna.Lookup.ToASCII(label)
-		if err != nil {
-			return "", errors.New("DNS 名称无效")
-		}
-		label = prefix + strings.ToLower(ascii)
-		if len(label) > 63 || strings.HasPrefix(label, "-") || strings.HasSuffix(label, "-") {
-			return "", errors.New("DNS 标签长度或连字符无效")
-		}
-		for _, r := range label {
-			if !(r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '-' || record && r == '_') {
-				return "", errors.New("DNS 标签含非法字符")
-			}
-		}
-		labels[i] = label
-	}
-	name := strings.Join(labels, ".")
-	if len(labels) < 2 || len(name) > 253 {
-		return "", errors.New("需要完整 DNS 名称")
-	}
-	return name, nil
-}
 
 func Type(t string) (string, error) {
 	t = strings.ToUpper(t)
@@ -133,6 +88,7 @@ func ValidatePatch(p RecordPatch, create bool, zone, existingType string) error 
 			if err != nil || typ == "A" && !ip.Is4() || typ == "AAAA" && !ip.Is6() || ip.Zone() != "" {
 				return errors.New("IP 地址与记录类型不匹配")
 			}
+			p["content"] = json.RawMessage(quote(ip.String()))
 		}
 		if typ == "CNAME" || typ == "MX" || typ == "NS" || typ == "PTR" {
 			if content != "." {
@@ -146,6 +102,9 @@ func ValidatePatch(p RecordPatch, create bool, zone, existingType string) error 
 	}
 	for _, key := range []string{"ttl", "priority"} {
 		if raw, ok := p[key]; ok {
+			if key == "priority" && typ != "MX" && typ != "URI" {
+				return errors.New("顶层 priority 仅用于 MX/URI，其他类型使用 data.priority")
+			}
 			n, err := strconv.ParseInt(string(raw), 10, 64)
 			if err != nil || key == "ttl" && n != 1 && (n < 30 || n > 86400) || key == "priority" && (n < 0 || n > 65535) {
 				return fmt.Errorf("%s 数值无效；TTL 使用 auto 或 30–86400 秒（套餐限制由 API 校验）", key)
@@ -198,56 +157,14 @@ func ValidatePatch(p RecordPatch, create bool, zone, existingType string) error 
 				return errors.New("此类型需要结构化 data；可使用类型参数或 --file")
 			}
 		}
-		if typ == "MX" {
+		if typ == "MX" || typ == "URI" {
 			if _, ok := p["priority"]; !ok {
-				return errors.New("MX 需要 --priority")
+				return fmt.Errorf("%s 需要 priority", typ)
 			}
 		}
 		if _, ok := p["ttl"]; !ok {
 			p["ttl"] = json.RawMessage("1")
 		}
 	}
-	if raw, ok := p["data"]; ok {
-		switch typ {
-		case "A", "AAAA", "CNAME", "TXT", "MX", "NS", "PTR", "OPENPGPKEY":
-			return errors.New("此类型不接受结构化 data，请使用 content/priority")
-		}
-		var d map[string]json.RawMessage
-		_ = json.Unmarshal(raw, &d)
-		required := map[string][]string{"CAA": {"flags", "tag", "value"}, "SRV": {"priority", "weight", "port", "target"}, "HTTPS": {"priority", "target", "value"}, "SVCB": {"priority", "target", "value"}}
-		for _, key := range required[typ] {
-			if create {
-				if _, ok := d[key]; !ok {
-					return fmt.Errorf("data.%s 为必填项", key)
-				}
-			}
-		}
-		for key, value := range d {
-			switch key {
-			case "priority", "weight", "port", "flags":
-				var n int
-				if bytes.Equal(bytes.TrimSpace(value), []byte("null")) || json.Unmarshal(value, &n) != nil || n < 0 || n > 65535 || key == "flags" && n > 255 {
-					return errors.New("data 中的数值范围无效")
-				}
-			case "target", "tag", "value":
-				var valueString string
-				if bytes.Equal(bytes.TrimSpace(value), []byte("null")) || json.Unmarshal(value, &valueString) != nil {
-					return errors.New("data 字段类型无效")
-				}
-				if key == "target" && valueString != "." {
-					normalized, err := Name(valueString, "", false)
-					if err != nil {
-						return err
-					}
-					d[key] = json.RawMessage(quote(normalized))
-				}
-				if key == "tag" && valueString == "" {
-					return errors.New("CAA tag 不能为空")
-				}
-			}
-		}
-		encoded, _ := json.Marshal(d)
-		p["data"] = encoded
-	}
-	return nil
+	return validateData(p, create, typ)
 }

@@ -89,6 +89,29 @@ def checksums(directory, version, commit):
     target.write_text(''.join(f'{sha256(p)}  {p.name}\n' for p in sorted(paths)), encoding='utf-8')
     return paths + [target]
 
+def source_snapshot(commit, destination):
+    """Build only the named source revision, never local/ignored extra files."""
+    commit_valid(commit)
+    head = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
+    if head != commit:
+        raise ValueError('build commit must match HEAD')
+    if subprocess.run(['git', 'diff', '--quiet', 'HEAD', '--']).returncode:
+        raise ValueError('tracked source changes must be committed before packaging')
+    archive = subprocess.check_output(['git', 'archive', '--format=tar', commit])
+    with tarfile.open(fileobj=io.BytesIO(archive)) as source:
+        for member in source:
+            path = PurePosixPath(member.name)
+            if path.is_absolute() or '..' in path.parts or not (member.isfile() or member.isdir()):
+                raise ValueError('source snapshot contains an unsafe path or link')
+            target = destination / member.name
+            if member.isdir():
+                target.mkdir(parents=True, exist_ok=True)
+            else:
+                target.parent.mkdir(parents=True, exist_ok=True)
+                with source.extractfile(member) as stream, target.open('wb') as output:
+                    shutil.copyfileobj(stream, output)
+    return destination
+
 def build(version, commit, system, arch, output):
     validate_version(version, True)
     commit_valid(commit)
@@ -96,31 +119,32 @@ def build(version, commit, system, arch, output):
     output = Path(output).resolve()
     output.mkdir(parents=True, exist_ok=True)
     epoch = int(subprocess.check_output(['git', 'show', '-s', '--format=%ct', commit]))
-    env = os.environ | {'CGO_ENABLED':'0', 'GOOS':system, 'GOARCH':arch, 'GOAMD64':'v1', 'GOARM64':'v8.0'}
+    env = os.environ | {'CGO_ENABLED':'0', 'GOOS':system, 'GOARCH':arch, 'GOAMD64':'v1', 'GOARM64':'v8.0', 'GOWORK':'off'}
     with tempfile.TemporaryDirectory(dir=output, prefix='.package-') as work:
+        source = source_snapshot(commit, Path(work)/'source')
         directory = Path(work) / root
         directory.mkdir()
         for item in ['LICENSE','NOTICE','README.md','CHANGELOG.md','go.mod','go.sum']:
-            shutil.copyfile(item, directory/item)
-        shutil.copytree('docs', directory/'docs')
-        shutil.copytree('examples', directory/'examples')
+            shutil.copyfile(source/item, directory/item)
+        shutil.copytree(source/'docs', directory/'docs')
+        shutil.copytree(source/'examples', directory/'examples')
         flags = f'-s -w -X github.com/gatework/cloudflare-go/internal/cli.Version={version} -X github.com/gatework/cloudflare-go/internal/cli.Commit={commit}'
-        subprocess.run(['go','build','-mod=readonly','-trimpath','-buildvcs=false','-ldflags',flags,'-o',str(directory/'cloudflare-go'),'./cmd/cloudflare-go'], env=env, check=True)
+        subprocess.run(['go','build','-mod=readonly','-trimpath','-buildvcs=false','-ldflags',flags,'-o',str(directory/'cloudflare-go'),'./cmd/cloudflare-go'], env=env, cwd=source, check=True)
         licenses = directory/'licenses'
         licenses.mkdir()
         goroot = Path(subprocess.check_output(['go','env','GOROOT'],text=True).strip())
         shutil.copyfile(goroot/'LICENSE', licenses/'go_LICENSE')
-        modules = subprocess.check_output(['go','list','-mod=readonly','-deps','-f','{{with .Module}}{{.Path}} {{.Dir}}{{end}}','./cmd/cloudflare-go'], env=env,text=True)
+        modules = subprocess.check_output(['go','list','-mod=readonly','-deps','-f','{{with .Module}}{{.Path}} {{.Dir}}{{end}}','./cmd/cloudflare-go'], env=env, cwd=source, text=True)
         for item in sorted(set(modules.splitlines())):
             if not item.strip():
                 continue
-            module, source = item.split(' ', 1)
+            module, module_directory = item.split(' ', 1)
             if module == 'github.com/gatework/cloudflare-go':
                 continue
             label = 'cloudflare' if module == 'github.com/cloudflare/cloudflare-go/v7' else module.replace('/','_')
             found = False
             for candidate in ['LICENSE','LICENSE.txt','LICENSE.md','COPYING']:
-                file = Path(source)/candidate
+                file = Path(module_directory)/candidate
                 if file.is_file():
                     shutil.copyfile(file, licenses/(label+'_'+candidate))
                     found = True

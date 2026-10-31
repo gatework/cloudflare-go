@@ -2,10 +2,27 @@ package config
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
 )
+
+func TestOptionalConfigOnlyAllowsAnAbsentFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	if _, err := Load(path); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("missing explicit config accepted", err)
+	}
+	if c, err := LoadOptional(path); err != nil || c.Profiles == nil {
+		t.Fatal(c, err)
+	}
+	if err := os.Symlink("missing-target", path); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadOptional(path); err == nil {
+		t.Fatal("broken config symlink silently ignored")
+	}
+}
 
 func TestProfilesAndAtomicUpdates(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.json")

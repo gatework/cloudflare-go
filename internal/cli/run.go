@@ -35,6 +35,7 @@ type app struct {
 	in                                                         io.Reader
 	out, err                                                   io.Writer
 	interactive                                                bool
+	explicitConfig                                             bool
 	path, profile, tokenFile, zoneName, zoneID, format, output string
 	timeout                                                    time.Duration
 	overwrite, spreadsheet                                     bool
@@ -43,11 +44,8 @@ type app struct {
 }
 
 func Run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer) int {
-	path, err := config.DefaultPath()
-	if err != nil {
-		fmt.Fprintln(errOut, "无法定位用户配置目录")
-		return 1
-	}
+	// Help/version and an explicit --config remain usable without HOME/XDG.
+	path, _ := config.DefaultPath()
 	a := &app{in: in, out: out, err: errOut, path: path}
 	if f, ok := in.(*os.File); ok {
 		a.interactive = term.IsTerminal(int(f.Fd()))
@@ -86,6 +84,24 @@ func (a *app) execute(ctx context.Context, args []string) int {
 }
 func (a *app) command() *cobra.Command {
 	root := &cobra.Command{Use: "cloudflare-go", Short: "Cloudflare DNS 记录管理与完整导出", SilenceErrors: true, SilenceUsage: true, RunE: func(c *cobra.Command, _ []string) error { return c.Help() }}
+	root.PersistentPreRunE = func(cmd *cobra.Command, _ []string) error {
+		a.explicitConfig = cmd.Flags().Changed("config")
+		if a.path == "" && !cmd.HasSubCommands() && cmd.Name() != "version" {
+			return usage("无法定位配置文件，请通过 --config 指定路径")
+		}
+		if a.overwrite && a.output == "" {
+			return usage("overwrite 需要同时指定 output")
+		}
+		for _, name := range []string{"config", "profile", "token-file", "zone", "zone-id", "format", "output"} {
+			if cmd.Flags().Changed(name) {
+				value, _ := cmd.Flags().GetString(name)
+				if value == "" {
+					return usage("--" + name + " 不能为空")
+				}
+			}
+		}
+		return nil
+	}
 	root.CompletionOptions.DisableDefaultCmd = true
 	root.SetFlagErrorFunc(func(_ *cobra.Command, err error) error { return &usageError{err} })
 	f := root.PersistentFlags()
@@ -109,8 +125,14 @@ func (a *app) command() *cobra.Command {
 	a.addDNS(root)
 	return root
 }
+
+func commandGroup(name, description string) *cobra.Command {
+	// Cobra's non-runnable parent commands otherwise display help and return
+	// success even for an unknown subcommand (e.g. "dns udpate").
+	return &cobra.Command{Use: name, Short: description, Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error { return cmd.Help() }}
+}
 func (a *app) settings() (config.Config, config.Profile, error) {
-	c, err := config.Load(a.path)
+	c, err := a.loadConfig(false)
 	if err != nil {
 		return c, config.Profile{}, &usageError{err}
 	}
@@ -123,6 +145,18 @@ func (a *app) settings() (config.Config, config.Profile, error) {
 		return c, p, &usageError{err}
 	}
 	return c, p, nil
+}
+
+func (a *app) loadConfig(required bool) (config.Config, error) {
+	load := config.LoadOptional
+	if required || a.explicitConfig {
+		load = config.Load
+	}
+	c, err := load(a.path)
+	if err != nil {
+		return c, &usageError{err}
+	}
+	return c, nil
 }
 func (a *app) connect() (dns.API, func(), config.Profile, error) {
 	_, p, err := a.settings()
@@ -144,7 +178,7 @@ func (a *app) connect() (dns.API, func(), config.Profile, error) {
 }
 func (a *app) context(c *cobra.Command, dump bool) (context.Context, context.CancelFunc, error) {
 	duration := a.timeout
-	if duration == 0 {
+	if !c.Flags().Changed("timeout") {
 		duration = 2 * time.Minute
 		if dump {
 			duration = 10 * time.Minute

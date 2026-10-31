@@ -32,28 +32,6 @@ func (s *Service) Prepare(ctx context.Context, z Zone, action string, selector S
 		change.Before = &before
 		change.RecordID = before.ID
 		if action == "update" {
-			// Preserve nested record data/settings when the API replaces the
-			// supplied object rather than merging its members.
-			var previous map[string]json.RawMessage
-			_ = json.Unmarshal(before.Raw, &previous)
-			for _, key := range []string{"data", "settings"} {
-				if incoming, ok := patch[key]; ok {
-					var merged map[string]json.RawMessage
-					_ = json.Unmarshal(previous[key], &merged)
-					if merged == nil {
-						merged = map[string]json.RawMessage{}
-					}
-					var fields map[string]json.RawMessage
-					if json.Unmarshal(incoming, &fields) != nil || fields == nil {
-						return change, fmt.Errorf("%w：data/settings 需要对象", ErrInvalid)
-					}
-					for k, v := range fields {
-						merged[k] = v
-					}
-					encoded, _ := json.Marshal(merged)
-					patch[key] = encoded
-				}
-			}
 			if typ, ok := patch["type"]; ok {
 				var value string
 				if json.Unmarshal(typ, &value) != nil || !strings.EqualFold(value, before.Type) {
@@ -82,6 +60,11 @@ func (s *Service) Prepare(ctx context.Context, z Zone, action string, selector S
 		}
 		if err := ValidatePatch(patch, action == "create", z.Name, typ); err != nil {
 			return change, fmt.Errorf("%w：%w", ErrInvalid, err)
+		}
+		if action == "update" {
+			if err := mergeRecordObjects(patch, change.Before.Raw); err != nil {
+				return change, err
+			}
 		}
 		if action == "create" {
 			var q Query
@@ -152,4 +135,38 @@ func (s *Service) Apply(ctx context.Context, change Change) (any, error) {
 		return map[string]any{"id": change.RecordID, "deleted": true}, nil
 	}
 	return record, nil
+}
+
+// Validate user input before merging, so future fields returned by the API are
+// preserved without becoming writable CLI aliases or being rejected on update.
+func mergeRecordObjects(patch RecordPatch, before json.RawMessage) error {
+	var previous map[string]json.RawMessage
+	if err := json.Unmarshal(before, &previous); err != nil {
+		return err
+	}
+	for _, key := range []string{"data", "settings"} {
+		incoming, ok := patch[key]
+		if !ok {
+			continue
+		}
+		merged := map[string]json.RawMessage{}
+		if old := previous[key]; len(old) > 0 && !bytes.Equal(bytes.TrimSpace(old), []byte("null")) {
+			if err := json.Unmarshal(old, &merged); err != nil {
+				return errors.New("API 返回的 data/settings 不是对象")
+			}
+		}
+		var fields map[string]json.RawMessage
+		if err := json.Unmarshal(incoming, &fields); err != nil {
+			return err
+		}
+		for k, v := range fields {
+			merged[k] = v
+		}
+		encoded, err := json.Marshal(merged)
+		if err != nil {
+			return err
+		}
+		patch[key] = encoded
+	}
+	return nil
 }

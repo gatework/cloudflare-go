@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/gatework/cloudflare-go/internal/config"
 	"github.com/gatework/cloudflare-go/internal/dns"
@@ -31,7 +32,7 @@ type recordFlags struct {
 }
 
 func (a *app) addDNS(root *cobra.Command) {
-	group := &cobra.Command{Use: "dns", Short: "单条记录增删改查与完整导出"}
+	group := commandGroup("dns", "单条记录增删改查与完整导出")
 	for _, action := range []string{"list", "get", "create", "update", "delete", "dump"} {
 		flags := &recordFlags{}
 		command := &cobra.Command{Use: action + " [DOMAIN]", Args: cobra.MaximumNArgs(1), RunE: func(cmd *cobra.Command, args []string) error { return a.records(cmd, args, action, flags) }}
@@ -113,6 +114,12 @@ func (a *app) records(cmd *cobra.Command, args []string, action string, f *recor
 	if f.id != "" && !config.ValidID(f.id) {
 		return usage("id 应为 32 位十六进制 ID")
 	}
+	if cmd.Flags().Changed("id") && f.id == "" {
+		return usage("id 不能为空")
+	}
+	if cmd.Flags().Changed("type") && len(f.types) == 0 {
+		return usage("type 不能为空")
+	}
 	for i, typ := range f.types {
 		f.types[i], err = dns.Type(typ)
 		if err != nil {
@@ -125,6 +132,9 @@ func (a *app) records(cmd *cobra.Command, args []string, action string, f *recor
 	domain := ""
 	if len(args) > 0 {
 		domain = args[0]
+		if domain == "" {
+			return usage("域名参数不能为空")
+		}
 	}
 	ctx, cancel, err := a.context(cmd, action == "dump")
 	if err != nil {
@@ -227,6 +237,17 @@ func (a *app) records(cmd *cobra.Command, args []string, action string, f *recor
 	if err != nil {
 		return err
 	}
+	if action == "create" || action == "update" {
+		typ := ""
+		if change.Before != nil {
+			typ = change.Before.Type
+		} else {
+			_ = json.Unmarshal(change.Changes["type"], &typ)
+		}
+		if err := validateRecordFlags(cmd, typ); err != nil {
+			return err
+		}
+	}
 	if f.dryRun {
 		return a.render(change, false, p)
 	}
@@ -270,8 +291,16 @@ func (a *app) records(cmd *cobra.Command, args []string, action string, f *recor
 }
 func buildPatch(cmd *cobra.Command, f *recordFlags, action, zone string) (dns.RecordPatch, error) {
 	changed := cmd.Flags().Changed
+	for _, value := range append([]string{f.content, f.comment, f.target, f.params, f.caaTag, f.caaValue}, f.tags...) {
+		if !utf8.ValidString(value) {
+			return nil, fmt.Errorf("记录参数必须是 UTF-8 文本，未替换非法字节")
+		}
+	}
 	keys := []string{"content", "content-file", "ttl", "proxied", "comment", "tag", "clear-tags", "new-name", "target", "params", "priority", "weight", "port", "caa-flags", "caa-tag", "caa-value"}
-	if f.file != "" {
+	if changed("file") {
+		if f.file == "" {
+			return nil, fmt.Errorf("file 路径不能为空")
+		}
 		for _, key := range keys {
 			if changed(key) {
 				return nil, fmt.Errorf("--file 不能与 --%s 混用", key)
@@ -310,6 +339,9 @@ func buildPatch(cmd *cobra.Command, f *recordFlags, action, zone string) (dns.Re
 		data, err := fileio.ReadRegularFile(f.contentFile, 1<<20)
 		if err != nil {
 			return nil, err
+		}
+		if !utf8.Valid(data) {
+			return nil, fmt.Errorf("content-file 必须是 UTF-8 文本，未替换非法字节")
 		}
 		patch["content"] = raw(string(data))
 	}
@@ -376,4 +408,20 @@ func buildPatch(cmd *cobra.Command, f *recordFlags, action, zone string) (dns.Re
 		patch["data"] = raw(data)
 	}
 	return patch, nil
+}
+
+func validateRecordFlags(cmd *cobra.Command, typ string) error {
+	for _, rule := range []struct {
+		flag  string
+		types string
+	}{
+		{"target", " SRV HTTPS SVCB "}, {"params", " HTTPS SVCB "},
+		{"priority", " MX SRV HTTPS SVCB "}, {"weight", " SRV "}, {"port", " SRV "},
+		{"caa-flags", " CAA "}, {"caa-tag", " CAA "}, {"caa-value", " CAA "},
+	} {
+		if cmd.Flags().Changed(rule.flag) && !strings.Contains(rule.types, " "+typ+" ") {
+			return usage(fmt.Sprintf("--%s 不适用于 %s 记录", rule.flag, typ))
+		}
+	}
+	return nil
 }

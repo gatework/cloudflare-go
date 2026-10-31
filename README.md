@@ -27,6 +27,8 @@ cloudflare-go --token-file /secure/cloudflare.token dns list example.com
 
 只读权限需要所选 Zone 的 **Zone Read + DNS Read**；创建、修改和删除另需 **DNS Write**。不要将 Token 作为普通命令行参数；工具不支持 `--token VALUE`。macOS 发行包未经 Apple 公证。
 
+首次使用可以没有默认配置文件；显式传入 `--config` 时文件必须存在，`init --config` 可创建新文件。显式空的 profile、Token 路径或记录 ID 会报错，避免脚本变量缺失时切换到其他凭据或记录。
+
 ## 查询与导出
 
 ```sh
@@ -88,6 +90,8 @@ cloudflare-go dns update _tls.example.com --id RECORD_ID --file patch.json
 
 文件只接受 `name/type/content/ttl/proxied/priority/comment/tags/data/settings/private_routing`，拒绝只读和未知顶层字段、重复键及顶层 null。`--file` 不与内容参数混用。高级 data/settings 字段由 Cloudflare 校验。
 
+DNSKEY 的 `data.flags` 是 16 位整数，NAPTR 的同名字段是字符串；URI 的 `data.target` 保留完整 URI，且需顶层 `priority`。CAA/SRV/HTTPS/SVCB/URI 的已知 data 结构在本地校验，其他高级约束由 API 校验。类型专用参数不能混用，例如 `--caa-value` 不能修改 HTTPS 的服务参数。内容文件必须是 UTF-8，非法字节会报错。
+
 写请求不自动重试。连接中断可能发生在服务端已经写入之后；工具进行只读核对，无法确认时返回退出码 5。不要把该结果理解为“肯定没有写入”。确认后重新读取能发现部分并发变化，但不提供服务端原子比较交换。
 
 写入后取消且无法核对结果时仍返回 5；发起写入前取消返回 130。指定输出文件时先创建临时文件，提前检查路径和权限；DNS 已成功但随后输出失败时会明确提示已发生变更。
@@ -95,6 +99,8 @@ cloudflare-go dns update _tls.example.com --id RECORD_ID --file patch.json
 ## 配置与自动化
 
 见 [配置参考](docs/CONFIGURATION.md)、[测试与发布](docs/VALIDATION.md)、[代码审查与基准](docs/REVIEW.md)、[开源调研](docs/RESEARCH.md) 和 [变更记录](CHANGELOG.md)。
+
+[第二轮审查](docs/REVIEW-2.md)记录高级记录语义、凭据回退、写入确认与发行包来源的修复和验证。
 
 ```sh
 cloudflare-go init --profile work --token-env CLOUDFLARE_WORK_TOKEN --default-zone example.org

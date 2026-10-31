@@ -2,10 +2,11 @@ import io
 import json
 from pathlib import Path
 import struct
+import subprocess
 import tarfile
 import tempfile
 import unittest
-from package import PLATFORMS, checksums, name, validate_version, verify
+from package import PLATFORMS, checksums, name, source_snapshot, validate_version, verify
 COMMIT='a'*40
 VERSION='v0.1.0'
 
@@ -35,6 +36,40 @@ def make_archive(directory, arch='amd64', version=VERSION, commit=COMMIT, system
     return path
 
 class PackageTest(unittest.TestCase):
+    def test_snapshot_excludes_untracked_and_ignored_files(self):
+        self.check_snapshot(dirty=False)
+
+    def test_snapshot_rejects_wrong_revision_and_dirty_source(self):
+        self.check_snapshot(dirty=True)
+
+    def check_snapshot(self, dirty):
+        import os
+        with tempfile.TemporaryDirectory() as directory, tempfile.TemporaryDirectory() as destination:
+            source=Path(directory)
+            subprocess.run(['git','init','-q',directory],check=True)
+            (source/'docs').mkdir()
+            (source/'docs'/'README.md').write_text('tracked documentation')
+            (source/'.gitignore').write_text('*.token\n')
+            subprocess.run(['git','-C',directory,'add','.'],check=True)
+            subprocess.run(['git','-C',directory,'-c','user.name=Test','-c','user.email=test@example.invalid','commit','-qm','fixture'],check=True)
+            commit=subprocess.check_output(['git','-C',directory,'rev-parse','HEAD'],text=True).strip()
+            (source/'docs'/'private.token').write_text('fixture secret')
+            (source/'docs'/'untracked.txt').write_text('local document')
+            previous=Path.cwd()
+            try:
+                os.chdir(source)
+                with self.assertRaises(ValueError):source_snapshot('f'*40,Path(destination))
+                if dirty:
+                    (source/'docs'/'README.md').write_text('modified')
+                    with self.assertRaises(ValueError):source_snapshot(commit,Path(destination))
+                else:
+                    source_snapshot(commit,Path(destination))
+                    self.assertEqual((Path(destination)/'docs'/'README.md').read_text(),'tracked documentation')
+                    self.assertFalse((Path(destination)/'docs'/'private.token').exists())
+                    self.assertFalse((Path(destination)/'docs'/'untracked.txt').exists())
+            finally:
+                os.chdir(previous)
+
     def test_version_validation(self):
         for tag in ['v0.1.0','v1.2.3-rc.1']:validate_version(tag)
         for tag in ['dev','1.2.3','v01.2.3','v1.2.3-01','v1.2.3\n','../escape']:

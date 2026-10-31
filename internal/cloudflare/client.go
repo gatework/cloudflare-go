@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"time"
 
 	sdkdns "github.com/cloudflare/cloudflare-go/v7/dns"
@@ -27,10 +28,15 @@ func (e *Error) Error() string {
 	if e.Status == 401 || e.Status == 403 {
 		hint = "认证或权限不足，请检查 Token 的 Zone Read / DNS Read / DNS Write 权限"
 	}
-	return fmt.Sprintf("%s（%s，HTTP %d，code %v，request %s）", hint, e.Kind, e.Status, e.Codes, e.RequestID)
+	return fmt.Sprintf("%s（%s，HTTP %d，code %v，request %q）", hint, e.Kind, e.Status, e.Codes, e.RequestID)
 }
-func (e *Error) Definitive() bool     { return e.Status >= 400 && e.Status < 500 && e.Status != 408 }
-func (e *Error) Is(target error) bool { return target == dns.ErrNotFound && e.Status == 404 }
+func (e *Error) Definitive() bool {
+	return e.Kind == "api" && e.Status >= 400 && e.Status < 500 && e.Status != 408
+}
+func (e *Error) Is(target error) bool {
+	// A proxy/router 404 does not prove the selected DNS record was deleted.
+	return target == dns.ErrNotFound && e.Kind == "api" && e.Status == 404 && slices.Contains(e.Codes, 81044)
+}
 
 type Client struct {
 	records *sdkdns.RecordService

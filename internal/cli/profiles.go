@@ -20,7 +20,10 @@ func (a *app) addProfiles(root *cobra.Command) {
 	var tokenEnv, account, defaultZone string
 	var makeDefault bool
 	initCmd := &cobra.Command{Use: "init", Short: "引导创建或更新命名配置；Token 不写入 JSON", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
-		loaded, err := config.Load(a.path)
+		if cmd.Flags().Changed("token-env") && tokenEnv == "" {
+			return usage("token-env 不能为空")
+		}
+		loaded, err := config.LoadOptional(a.path)
 		if err != nil {
 			return &usageError{err}
 		}
@@ -163,9 +166,9 @@ func (a *app) addProfiles(root *cobra.Command) {
 	initCmd.Flags().StringVar(&defaultZone, "default-zone", "", "可选，简写记录名使用的 Zone")
 	initCmd.Flags().BoolVar(&makeDefault, "default", false, "设为默认配置")
 	root.AddCommand(initCmd)
-	profile := &cobra.Command{Use: "profile", Short: "管理命名配置"}
+	profile := commandGroup("profile", "管理命名配置")
 	profile.AddCommand(&cobra.Command{Use: "list", Args: cobra.NoArgs, RunE: func(*cobra.Command, []string) error {
-		c, err := config.Load(a.path)
+		c, err := a.loadConfig(false)
 		if err != nil {
 			return &usageError{err}
 		}
@@ -188,7 +191,7 @@ func (a *app) addProfiles(root *cobra.Command) {
 		if name == "" {
 			name = os.Getenv("CLOUDFLARE_PROFILE")
 		}
-		c, err := config.Load(a.path)
+		c, err := a.loadConfig(false)
 		if err != nil {
 			return err
 		}
@@ -220,10 +223,10 @@ func (a *app) addProfiles(root *cobra.Command) {
 		}})
 	}
 	root.AddCommand(profile)
-	group := &cobra.Command{Use: "config", Short: "查看并检查本地配置（不连接 API）"}
+	group := commandGroup("config", "查看并检查本地配置（不连接 API）")
 	for _, action := range []string{"show", "check"} {
 		group.AddCommand(&cobra.Command{Use: action, Args: cobra.NoArgs, RunE: func(*cobra.Command, []string) error {
-			c, err := config.Load(a.path)
+			c, err := a.loadConfig(true)
 			if err != nil {
 				return &usageError{err}
 			}

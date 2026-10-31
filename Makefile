@@ -13,6 +13,6 @@ race:
 vet:
 	$(GO) vet ./...
 bench:
-	$(GO) test ./internal/output -run '^$$' -bench BenchmarkDump -benchmem -count=5
+	$(GO) test ./internal/output ./internal/cloudflare -run '^$$' -bench 'BenchmarkDump|BenchmarkResponseValidation' -benchmem -count=5
 package:
 	python3 scripts/package.py build '$(VERSION)' '$(COMMIT)' '$(OS)' '$(ARCH)'

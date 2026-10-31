@@ -7,7 +7,7 @@ import (
 )
 
 func (a *app) addZones(root *cobra.Command) {
-	group := &cobra.Command{Use: "zone", Short: "查询 Zone，不修改 Zone 本身"}
+	group := commandGroup("zone", "查询 Zone，不修改 Zone 本身")
 	group.AddCommand(&cobra.Command{Use: "list", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
 		if err := a.validateOutput(); err != nil {
 			return err
