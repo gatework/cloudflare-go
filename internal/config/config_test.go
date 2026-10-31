@@ -41,10 +41,13 @@ func TestProfilesAndAtomicUpdates(t *testing.T) {
 	}
 }
 func TestStrictConfiguration(t *testing.T) {
-	for _, input := range []string{`{"profiles":{"a":null}}`, `{"profiles":{},"unexpected":true}`, `{"profiles":{"a":{"token_file":"file","token_env":"TOKEN"}}}`, `{"profiles":{},"default_profile":"missing"}`, `{"profiles":{"../bad":{}}}`, `{"profiles":{"a":{"api_token":"secret"}}}`} {
+	for _, input := range []string{`{"profiles":{"a":null}}`, `{"Profiles":{}}`, `{"profiles":{"a":{"Token_Env":"TOKEN"}}}`, `{"profiles":{"a":{"format":null}}}`, `{"profiles":{},"unexpected":true}`, `{"profiles":{"a":{"token_file":"file","token_env":"TOKEN"}}}`, `{"profiles":{},"default_profile":"missing"}`, `{"profiles":{"../bad":{}}}`, `{"profiles":{"a":{"api_token":"secret"}}}`} {
 		if _, err := Decode([]byte(input)); err == nil {
 			t.Fatal(input)
 		}
+	}
+	if c, err := Decode([]byte(`{"profiles":{"Work":{},"work":{}}}`)); err != nil || len(c.Profiles) != 2 {
+		t.Fatal(c, err)
 	}
 }
 func FuzzDecode(f *testing.F) {

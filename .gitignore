@@ -3,4 +3,5 @@
 *.token
 *.test
 coverage.out
+benchmark.txt
 __pycache__/

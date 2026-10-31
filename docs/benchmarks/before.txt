@@ -1,0 +1,26 @@
+goos: linux
+goarch: amd64
+pkg: github.com/gatework/cloudflare-go/internal/output
+cpu: AMD EPYC 7K62 48-Core Processor                
+BenchmarkDump/json-2         	      78	   6639189 ns/op	 2563265 B/op	       8 allocs/op
+BenchmarkDump/json-2         	     147	   4321913 ns/op	 2392706 B/op	       5 allocs/op
+BenchmarkDump/json-2         	     127	   4560980 ns/op	 2392705 B/op	       5 allocs/op
+BenchmarkDump/json-2         	     165	   3496003 ns/op	 2392704 B/op	       5 allocs/op
+BenchmarkDump/json-2         	     176	   3380422 ns/op	 2392707 B/op	       5 allocs/op
+BenchmarkDump/csv-2          	      16	  32887293 ns/op	15733289 B/op	   50128 allocs/op
+BenchmarkDump/csv-2          	      18	  36146082 ns/op	16151171 B/op	   50135 allocs/op
+BenchmarkDump/csv-2          	      14	  36318815 ns/op	16149074 B/op	   50128 allocs/op
+BenchmarkDump/csv-2          	      18	  33787028 ns/op	16149375 B/op	   50126 allocs/op
+BenchmarkDump/csv-2          	      16	  41537238 ns/op	16151063 B/op	   50132 allocs/op
+BenchmarkDump/txt-2          	      14	  42751940 ns/op	17164448 B/op	   88140 allocs/op
+BenchmarkDump/txt-2          	      13	  48700974 ns/op	17165698 B/op	   88139 allocs/op
+BenchmarkDump/txt-2          	       9	  67146820 ns/op	17166438 B/op	   88145 allocs/op
+BenchmarkDump/txt-2          	      10	  60787760 ns/op	17166267 B/op	   88143 allocs/op
+BenchmarkDump/txt-2          	      14	  50539122 ns/op	17165600 B/op	   88138 allocs/op
+BenchmarkDump/table-2        	      20	  31714124 ns/op	18986617 B/op	   52162 allocs/op
+BenchmarkDump/table-2        	      19	  31120490 ns/op	18988275 B/op	   52173 allocs/op
+BenchmarkDump/table-2        	      19	  31025809 ns/op	18986712 B/op	   52167 allocs/op
+BenchmarkDump/table-2        	      19	  32302418 ns/op	18987378 B/op	   52165 allocs/op
+BenchmarkDump/table-2        	      20	  32395300 ns/op	18989783 B/op	   52175 allocs/op
+PASS
+ok  	github.com/gatework/cloudflare-go/internal/output	12.255s

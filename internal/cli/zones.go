@@ -41,7 +41,7 @@ func (a *app) addZones(root *cobra.Command) {
 		if len(args) > 0 {
 			zoneName = args[0]
 		}
-		if zoneName == "" {
+		if zoneName == "" && a.zoneID == "" {
 			zoneName = p.DefaultZone
 		}
 		if zoneName == "" && a.zoneID == "" {

@@ -5,9 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/gatework/cloudflare-go/internal/cloudflare"
-	"github.com/gatework/cloudflare-go/internal/config"
-	"github.com/gatework/cloudflare-go/internal/dns"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -15,6 +12,10 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/gatework/cloudflare-go/internal/cloudflare"
+	"github.com/gatework/cloudflare-go/internal/config"
+	"github.com/gatework/cloudflare-go/internal/dns"
 )
 
 const zone = "11111111111111111111111111111111"

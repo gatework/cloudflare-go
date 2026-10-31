@@ -28,6 +28,7 @@ var Commit = "unknown"
 type usageError struct{ err error }
 
 func (e *usageError) Error() string { return e.err.Error() }
+func (e *usageError) Unwrap() error { return e.err }
 func usage(text string) error       { return &usageError{errors.New(text)} }
 
 type app struct {
@@ -65,6 +66,10 @@ func (a *app) execute(ctx context.Context, args []string) int {
 		return 0
 	}
 	_, _ = fmt.Fprintln(a.err, err)
+	// Cancellation after sending a mutation cannot establish that it failed.
+	if errors.Is(err, dns.ErrUncertain) {
+		return 5
+	}
 	if errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) {
 		return 130
 	}
@@ -72,8 +77,6 @@ func (a *app) execute(ctx context.Context, args []string) int {
 	switch {
 	case errors.Is(err, dns.ErrInvalid), errors.As(err, &bad), strings.HasPrefix(err.Error(), "unknown command"), strings.Contains(err.Error(), "arg(s)"):
 		return 2
-	case errors.Is(err, dns.ErrUncertain):
-		return 5
 	case errors.Is(err, dns.ErrConflict):
 		return 4
 	case errors.Is(err, dns.ErrNotFound):

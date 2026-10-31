@@ -2,10 +2,11 @@ package credentials
 
 import (
 	"errors"
-	"github.com/gatework/cloudflare-go/internal/fileio"
 	"os"
 	"strings"
 	"unicode"
+
+	"github.com/gatework/cloudflare-go/internal/fileio"
 )
 
 func Validate(token string) (string, error) {

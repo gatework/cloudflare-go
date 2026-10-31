@@ -37,34 +37,37 @@ func DefaultPath() (string, error) {
 }
 func Decode(data []byte) (Config, error) {
 	var c Config
-	if _, err := fileio.JSONObject(data); err != nil {
+	object, err := fileio.JSONObject(data)
+	if err != nil {
 		return c, err
 	}
-	var tree any
-	_ = json.Unmarshal(data, &tree)
-	var nonnull func(any) bool
-	nonnull = func(v any) bool {
-		if v == nil {
-			return false
+	for key, value := range object {
+		if key != "default_profile" && key != "profiles" {
+			return c, errors.New("配置包含未知字段")
 		}
-		switch x := v.(type) {
-		case map[string]any:
-			for _, value := range x {
-				if !nonnull(value) {
-					return false
-				}
-			}
-		case []any:
-			for _, value := range x {
-				if !nonnull(value) {
-					return false
-				}
-			}
+		if bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
+			return c, errors.New("配置字段不能为 null")
 		}
-		return true
 	}
-	if !nonnull(tree) {
-		return c, errors.New("配置字段不能为 null")
+	var profiles map[string]json.RawMessage
+	if json.Unmarshal(object["profiles"], &profiles) != nil || profiles == nil {
+		return c, errors.New("配置缺少有效 profiles")
+	}
+	for _, raw := range profiles {
+		var fields map[string]json.RawMessage
+		if json.Unmarshal(raw, &fields) != nil || fields == nil {
+			return c, errors.New("profile 必须是对象")
+		}
+		for key, value := range fields {
+			switch key {
+			case "token_file", "token_env", "account_id", "default_zone", "format":
+			default:
+				return c, errors.New("profile 包含未知字段")
+			}
+			if bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
+				return c, errors.New("配置字段不能为 null")
+			}
+		}
 	}
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()

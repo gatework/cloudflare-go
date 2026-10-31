@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"strings"
 	"unicode/utf8"
 )
 
@@ -16,8 +15,12 @@ func JSONObject(data []byte) (map[string]json.RawMessage, error) {
 	}
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.UseNumber()
-	var scan func() error
-	scan = func() error {
+	const maxDepth = 128
+	var scan func(int) error
+	scan = func(depth int) error {
+		if depth > maxDepth {
+			return errors.New("JSON 嵌套超过 128 层")
+		}
 		token, err := decoder.Token()
 		if err != nil {
 			return err
@@ -31,18 +34,18 @@ func JSONObject(data []byte) (map[string]json.RawMessage, error) {
 					if err != nil {
 						return err
 					}
-					name := strings.ToLower(k.(string))
+					name := k.(string)
 					if seen[name] {
 						return errors.New("JSON 包含重复字段")
 					}
 					seen[name] = true
-					if err = scan(); err != nil {
+					if err = scan(depth + 1); err != nil {
 						return err
 					}
 				}
 			case '[':
 				for decoder.More() {
-					if err := scan(); err != nil {
+					if err := scan(depth + 1); err != nil {
 						return err
 					}
 				}
@@ -54,7 +57,7 @@ func JSONObject(data []byte) (map[string]json.RawMessage, error) {
 		}
 		return nil
 	}
-	if err := scan(); err != nil {
+	if err := scan(0); err != nil {
 		return nil, errors.New("JSON 格式错误或存在重复字段")
 	}
 	if _, err := decoder.Token(); err != io.EOF {

@@ -5,10 +5,11 @@ import (
 	"encoding/csv"
 	"encoding/json"
 	"errors"
-	"github.com/gatework/cloudflare-go/internal/dns"
 	"io"
 	"strings"
 	"testing"
+
+	"github.com/gatework/cloudflare-go/internal/dns"
 )
 
 func TestFormatsPreserveFullRecord(t *testing.T) {

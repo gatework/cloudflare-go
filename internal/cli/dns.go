@@ -10,6 +10,7 @@ import (
 	"github.com/gatework/cloudflare-go/internal/config"
 	"github.com/gatework/cloudflare-go/internal/dns"
 	"github.com/gatework/cloudflare-go/internal/fileio"
+	"github.com/gatework/cloudflare-go/internal/output"
 	"github.com/spf13/cobra"
 )
 
@@ -32,7 +33,6 @@ type recordFlags struct {
 func (a *app) addDNS(root *cobra.Command) {
 	group := &cobra.Command{Use: "dns", Short: "单条记录增删改查与完整导出"}
 	for _, action := range []string{"list", "get", "create", "update", "delete", "dump"} {
-		action := action
 		flags := &recordFlags{}
 		command := &cobra.Command{Use: action + " [DOMAIN]", Args: cobra.MaximumNArgs(1), RunE: func(cmd *cobra.Command, args []string) error { return a.records(cmd, args, action, flags) }}
 		f := command.Flags()
@@ -98,7 +98,7 @@ func (a *app) records(cmd *cobra.Command, args []string, action string, f *recor
 		return usage("spreadsheet-safe 只用于 CSV")
 	}
 	zoneName := a.zoneName
-	if zoneName == "" {
+	if zoneName == "" && a.zoneID == "" {
 		zoneName = p.DefaultZone
 	}
 	if zoneName != "" {
@@ -133,12 +133,13 @@ func (a *app) records(cmd *cobra.Command, args []string, action string, f *recor
 	defer cancel()
 	service := dns.Service{API: api, AccountID: p.AccountID, MaxBytes: a.maxBytes}
 	// An explicit Zone ID can resolve apex/relative names without guessing.
-	if a.zoneID != "" && zoneName == "" {
-		z, err := service.Zone(ctx, "", "", a.zoneID)
+	var zone dns.Zone
+	if a.zoneID != "" {
+		zone, err = service.Zone(ctx, "", zoneName, a.zoneID)
 		if err != nil {
 			return err
 		}
-		zoneName = z.Name
+		zoneName = zone.Name
 	}
 	if domain == "" {
 		if f.id == "" {
@@ -153,9 +154,13 @@ func (a *app) records(cmd *cobra.Command, args []string, action string, f *recor
 			return err
 		}
 	}
-	zone, err := service.Zone(ctx, domain, zoneName, a.zoneID)
-	if err != nil {
-		return err
+	if a.zoneID == "" {
+		zone, err = service.Zone(ctx, domain, zoneName, "")
+		if err != nil {
+			return err
+		}
+	} else if domain != "" && !dns.Within(domain, zone.Name) {
+		return usage("记录名称不属于所选 Zone")
 	}
 	query := dns.Query{Domain: domain, Exact: f.exact, Types: f.types}
 	if cmd.Flags().Changed("proxied") && action != "create" && action != "update" {
@@ -225,6 +230,16 @@ func (a *app) records(cmd *cobra.Command, args []string, action string, f *recor
 	if f.dryRun {
 		return a.render(change, false, p)
 	}
+	// Reserve the output before a mutation, so a missing/unwritable parent
+	// directory cannot cause a successful DNS change followed by a local failure.
+	var destination *fileio.Output
+	if a.output != "" {
+		destination, err = fileio.NewOutput(a.output, a.overwrite)
+		if err != nil {
+			return err
+		}
+		defer destination.Close()
+	}
 	if action == "delete" && !f.yes {
 		cancel()
 		if err = a.confirm(cmd.Context(), fmt.Sprintf("删除 %s %s（ID %s）？", change.Before.Name, change.Before.Type, change.RecordID)); err != nil {
@@ -240,7 +255,18 @@ func (a *app) records(cmd *cobra.Command, args []string, action string, f *recor
 	if err != nil {
 		return err
 	}
-	return a.render(value, false, p)
+	if destination != nil {
+		err = output.Render(destination, a.formatFor(false, p), value, a.spreadsheet)
+		if err == nil {
+			err = destination.Commit()
+		}
+	} else {
+		err = a.render(value, false, p)
+	}
+	if err != nil {
+		return fmt.Errorf("DNS %s 已成功，但结果输出失败；请查询记录确认：%w", action, err)
+	}
+	return nil
 }
 func buildPatch(cmd *cobra.Command, f *recordFlags, action, zone string) (dns.RecordPatch, error) {
 	changed := cmd.Flags().Changed

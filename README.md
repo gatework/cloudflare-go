@@ -12,8 +12,8 @@
 sha256sum --ignore-missing -c checksums.txt
 # macOS 可用：shasum -a 256 --check checksums.txt
 # 只下载一个平台时，仅核对该归档对应的那一行。
-tar -xzf cloudflare-go_v0.1.0_linux_amd64.tar.gz
-cd cloudflare-go_v0.1.0_linux_amd64
+tar -xzf cloudflare-go_v0.1.1_linux_amd64.tar.gz
+cd cloudflare-go_v0.1.1_linux_amd64
 ./cloudflare-go version
 ./cloudflare-go init --profile personal
 ```
@@ -48,11 +48,15 @@ list/dump 默认包括输入名称及其子域，`--exact` 仅匹配该名称。
 
 JSON 保留 API 原始记录，包括未知字段、空值、`data/settings/meta/tags` 和时间戳。CSV 包含完整 `record_json` 列；txt 展示完整键值详情。table 仅为简表，可截断长内容；table/txt 会转义终端控制字符。CSV 默认不改变真实值，`--spreadsheet-safe` 显式给公式前缀增加单引号。
 
+DNS CSV 的 `record_json` 保留原始记录，不混入导出的 Zone 元数据；Zone、profile 和变更预览的 CSV 使用各自实际字段。txt/CSV 将 JSON null 显示为 `null`，与空字符串区分。
+
 BIND 调用官方整 Zone 导出接口，不能搭配记录筛选。它保留 Cloudflare 的区域文件内容，但不能替代带 ID、时间戳等详情的 JSON 导出。
 
 普通查询在终端默认 table，管道默认 JSON；dump 默认 JSON。显式 `--format` 优先，否则输出文件的 `.json/.csv/.txt/.zone` 扩展名可决定格式。stdout 只输出数据，诊断与确认写 stderr。
 
 导出分页失败时不输出半份结果。文件在完整编码后原子发布，默认 0600、不覆盖已有文件；显式 `--overwrite` 才替换旧文件。Cloudflare 分页不提供事务快照保证：导出期间记录变化可能导致不同时间点的数据。
+
+分页收集完成后逐条编码，避免复制整份导出数据。`--max-bytes` 限制累计原始记录字节数，并非进程内存上限。大量记录的 table 每 256 行刷新，列宽在各块内对齐。
 
 ## 单条记录管理
 
@@ -86,9 +90,11 @@ cloudflare-go dns update _tls.example.com --id RECORD_ID --file patch.json
 
 写请求不自动重试。连接中断可能发生在服务端已经写入之后；工具进行只读核对，无法确认时返回退出码 5。不要把该结果理解为“肯定没有写入”。确认后重新读取能发现部分并发变化，但不提供服务端原子比较交换。
 
+写入后取消且无法核对结果时仍返回 5；发起写入前取消返回 130。指定输出文件时先创建临时文件，提前检查路径和权限；DNS 已成功但随后输出失败时会明确提示已发生变更。
+
 ## 配置与自动化
 
-见 [配置参考](docs/CONFIGURATION.md)、[测试与发布](docs/VALIDATION.md)、[开源调研](docs/RESEARCH.md) 和 [变更记录](CHANGELOG.md)。
+见 [配置参考](docs/CONFIGURATION.md)、[测试与发布](docs/VALIDATION.md)、[代码审查与基准](docs/REVIEW.md)、[开源调研](docs/RESEARCH.md) 和 [变更记录](CHANGELOG.md)。
 
 ```sh
 cloudflare-go init --profile work --token-env CLOUDFLARE_WORK_TOKEN --default-zone example.org

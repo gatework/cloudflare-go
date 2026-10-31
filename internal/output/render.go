@@ -2,6 +2,7 @@
 package output
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/csv"
 	"encoding/json"
@@ -20,7 +21,20 @@ func Valid(format string) bool {
 	}
 	return false
 }
+
+// Render buffers small writes and reports both encoder and final flush errors.
+// DNS exports are encoded one record at a time, without rebuilding the dataset.
 func Render(w io.Writer, format string, value any, safe bool) error {
+	buffered := bufio.NewWriterSize(w, 32<<10)
+	if err := render(buffered, format, value, safe); err != nil {
+		return err
+	}
+	return buffered.Flush()
+}
+func render(w io.Writer, format string, value any, safe bool) error {
+	if records, zone, ok := recordValues(value); ok {
+		return renderRecords(w, format, value, records, zone, safe)
+	}
 	if format == "bind" {
 		text, ok := value.(string)
 		if !ok {
@@ -41,30 +55,27 @@ func Render(w io.Writer, format string, value any, safe bool) error {
 	}
 	switch format {
 	case "csv":
-		columns := []string{"zone_id", "zone_name", "id", "type", "name", "content", "ttl", "proxied", "proxiable", "priority", "comment", "tags", "data", "settings", "meta", "private_routing", "created_on", "modified_on", "comment_modified_on", "tags_modified_on", "record_json"}
-		csvWriter := csv.NewWriter(w)
-		if err = csvWriter.Write(columns); err != nil {
+		// Zone, profile, dry-run and delete results have their own columns. Using
+		// the DNS schema here would silently drop most of their fields.
+		columns := columnNames(rows)
+		writer := csv.NewWriter(w)
+		if err := writer.Write(columns); err != nil {
 			return err
 		}
 		for _, row := range rows {
 			values := make([]string, len(columns))
 			for i, key := range columns {
-				if key == "record_json" {
-					b, _ := json.Marshal(row)
-					values[i] = string(b)
-				} else {
-					values[i] = cell(row[key])
-				}
+				values[i] = cell(row[key])
 				if safe {
 					values[i] = spreadsheet(values[i])
 				}
 			}
-			if err = csvWriter.Write(values); err != nil {
+			if err := writer.Write(values); err != nil {
 				return err
 			}
 		}
-		csvWriter.Flush()
-		return csvWriter.Error()
+		writer.Flush()
+		return writer.Error()
 	case "txt":
 		for i, row := range rows {
 			if i > 0 {
@@ -85,27 +96,9 @@ func Render(w io.Writer, format string, value any, safe bool) error {
 		}
 		return nil
 	case "table":
-		if len(rows) > 0 && rows[0]["type"] == nil {
-			return genericTable(w, rows)
-		}
-		tw := tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)
-		if _, err = fmt.Fprintln(tw, "NAME\tTYPE\tCONTENT\tTTL\tPROXIED\tID"); err != nil {
-			return err
-		}
-		for _, row := range rows {
-			content := cell(row["content"])
-			if content == "" {
-				content = cell(row["data"])
-			}
-			if len(content) > 100 {
-				content = string([]rune(content)[:min(100, len([]rune(content)))]) + "…"
-			}
-			if _, err = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", escape(cell(row["name"])), escape(cell(row["type"])), escape(content), escape(cell(row["ttl"])), escape(cell(row["proxied"])), escape(cell(row["id"]))); err != nil {
-				return err
-			}
-		}
-		return tw.Flush()
+		return genericTable(w, rows)
 	}
+
 	return fmt.Errorf("未知输出格式")
 }
 func objects(value any) ([]map[string]json.RawMessage, error) {
@@ -125,23 +118,14 @@ func objects(value any) ([]map[string]json.RawMessage, error) {
 	if err = json.Unmarshal(data, &object); err != nil {
 		return nil, err
 	}
-	if raw, ok := object["records"]; ok {
-		if err = json.Unmarshal(raw, &rows); err != nil {
-			return nil, err
-		}
-		var zone map[string]json.RawMessage
-		_ = json.Unmarshal(object["zone"], &zone)
-		for _, row := range rows {
-			row["zone_id"] = zone["id"]
-			row["zone_name"] = zone["name"]
-		}
-		return rows, nil
-	}
 	return []map[string]json.RawMessage{object}, nil
 }
 func cell(raw json.RawMessage) string {
 	if len(raw) == 0 {
 		return ""
+	}
+	if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		return "null"
 	}
 	var text string
 	if json.Unmarshal(raw, &text) == nil {
@@ -165,7 +149,7 @@ func spreadsheet(s string) string {
 	return s
 }
 
-func genericTable(w io.Writer, rows []map[string]json.RawMessage) error {
+func columnNames(rows []map[string]json.RawMessage) []string {
 	keys := []string{}
 	seen := map[string]bool{}
 	for _, row := range rows {
@@ -177,10 +161,15 @@ func genericTable(w io.Writer, rows []map[string]json.RawMessage) error {
 		}
 	}
 	sort.Strings(keys)
+	return keys
+}
+
+func genericTable(w io.Writer, rows []map[string]json.RawMessage) error {
+	keys := columnNames(rows)
 	tw := tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)
 	headers := make([]string, len(keys))
 	for i, key := range keys {
-		headers[i] = strings.ToUpper(key)
+		headers[i] = escape(strings.ToUpper(key))
 	}
 	if _, err := fmt.Fprintln(tw, strings.Join(headers, "\t")); err != nil {
 		return err

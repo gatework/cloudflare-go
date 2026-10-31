@@ -2,6 +2,8 @@
 
 本地：`go test ./...`、`go test -race -timeout 5m ./...`、`go vet ./...`、`python3 -m unittest discover -s scripts -p 'test_*.py'`。
 
+导出基准：`make bench`。固定 1,000 条、每条 1 KiB TXT 内容，测量已经收集的记录在四种格式下的编码耗时与分配量。CI 保存 `export-benchmark` 附件，供相同环境下比较；共享 runner 的耗时波动不作为硬性发布门槛。[首轮审查报告](REVIEW.md)包含基线、改进结果与测量边界。
+
 测试使用本地 HTTP 假服务，验证实际官方 SDK 请求的 Bearer 认证、POST/PATCH/DELETE、原始 JSON 保留、精确 false、分页、重试和错误脱敏。CLI 测试通过整个命令/API/输出链路验证 dry-run、CRUD、冲突、删除确认、dump 和 profile 更新。名称、配置与 JSON 解析器提供 fuzz 入口。
 
 CI 在 Linux amd64/arm64、macOS amd64/arm64 原生运行全部 Go 测试，构建并执行同一份发行包。独立检查 race、vet、Staticcheck、govulncheck、actionlint、模块一致性、解析器 fuzz 和 Python 发行脚本测试。Linux amd64 重建归档进行逐字节比较。

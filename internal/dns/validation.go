@@ -1,15 +1,17 @@
 package dns
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/gatework/cloudflare-go/internal/fileio"
-	"golang.org/x/net/idna"
 	"net/netip"
 	"strconv"
 	"strings"
 	"unicode"
+
+	"github.com/gatework/cloudflare-go/internal/fileio"
+	"golang.org/x/net/idna"
 )
 
 func Within(name, zone string) bool { return name == zone || strings.HasSuffix(name, "."+zone) }
@@ -56,19 +58,14 @@ func Name(value, zone string, record bool) (string, error) {
 	return name, nil
 }
 
-var recordTypes = map[string]bool{}
-
-func init() {
-	for _, t := range strings.Fields("A AAAA CNAME TXT MX NS PTR CAA SRV HTTPS SVCB CERT DNSKEY DS LOC NAPTR SMIMEA SSHFP TLSA URI OPENPGPKEY") {
-		recordTypes[t] = true
-	}
-}
 func Type(t string) (string, error) {
 	t = strings.ToUpper(t)
-	if !recordTypes[t] {
+	switch t {
+	case "A", "AAAA", "CNAME", "TXT", "MX", "NS", "PTR", "CAA", "SRV", "HTTPS", "SVCB", "CERT", "DNSKEY", "DS", "LOC", "NAPTR", "SMIMEA", "SSHFP", "TLSA", "URI", "OPENPGPKEY":
+		return t, nil
+	default:
 		return "", errors.New("不支持的 DNS 记录类型")
 	}
-	return t, nil
 }
 func DecodePatch(data []byte) (RecordPatch, error) {
 	object, err := fileio.JSONObject(data)
@@ -86,7 +83,7 @@ func ValidatePatch(p RecordPatch, create bool, zone, existingType string) error 
 		allowed[key] = true
 	}
 	for k, v := range p {
-		if !allowed[k] || string(v) == "null" {
+		if !allowed[k] || bytes.Equal(bytes.TrimSpace(v), []byte("null")) {
 			return fmt.Errorf("不支持、只读或空值字段：%s", k)
 		}
 	}
@@ -229,12 +226,12 @@ func ValidatePatch(p RecordPatch, create bool, zone, existingType string) error 
 			switch key {
 			case "priority", "weight", "port", "flags":
 				var n int
-				if json.Unmarshal(value, &n) != nil || n < 0 || n > 65535 || key == "flags" && n > 255 {
+				if bytes.Equal(bytes.TrimSpace(value), []byte("null")) || json.Unmarshal(value, &n) != nil || n < 0 || n > 65535 || key == "flags" && n > 255 {
 					return errors.New("data 中的数值范围无效")
 				}
 			case "target", "tag", "value":
 				var valueString string
-				if json.Unmarshal(value, &valueString) != nil {
+				if bytes.Equal(bytes.TrimSpace(value), []byte("null")) || json.Unmarshal(value, &valueString) != nil {
 					return errors.New("data 字段类型无效")
 				}
 				if key == "target" && valueString != "." {

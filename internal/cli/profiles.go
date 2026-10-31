@@ -11,6 +11,7 @@ import (
 
 	"github.com/gatework/cloudflare-go/internal/config"
 	"github.com/gatework/cloudflare-go/internal/credentials"
+	"github.com/gatework/cloudflare-go/internal/dns"
 	"github.com/gatework/cloudflare-go/internal/fileio"
 	"github.com/spf13/cobra"
 )
@@ -43,7 +44,8 @@ func (a *app) addProfiles(root *cobra.Command) {
 			return usage("account-id 无效")
 		}
 
-		p := loaded.Profiles[name]
+		previous, existed := loaded.Profiles[name]
+		p := previous
 		createdToken := ""
 		defer func() {
 			if createdToken != "" {
@@ -57,7 +59,10 @@ func (a *app) addProfiles(root *cobra.Command) {
 			p.DefaultZone = defaultZone
 		}
 		if a.tokenFile != "" {
-			p.TokenFile = a.tokenFile
+			p.TokenFile, err = filepath.Abs(a.tokenFile)
+			if err != nil {
+				return err
+			}
 			p.TokenEnv = ""
 		}
 		if tokenEnv != "" {
@@ -105,7 +110,10 @@ func (a *app) addProfiles(root *cobra.Command) {
 			if err != nil {
 				return err
 			}
-			dir := filepath.Join(filepath.Dir(a.path), "credentials")
+			dir, err := filepath.Abs(filepath.Join(filepath.Dir(a.path), "credentials"))
+			if err != nil {
+				return err
+			}
 			if err = os.MkdirAll(dir, 0700); err != nil {
 				return err
 			}
@@ -130,6 +138,9 @@ func (a *app) addProfiles(root *cobra.Command) {
 			p.DefaultZone = normalized
 		}
 		err = config.Update(a.path, func(c *config.Config) error {
+			if current, ok := c.Profiles[name]; ok != existed || current != previous {
+				return fmt.Errorf("%w：初始化期间 profile 已被另一进程修改，请重新运行", dns.ErrConflict)
+			}
 			c.Profiles[name] = p
 			if makeDefault || c.DefaultProfile == "" {
 				c.DefaultProfile = name
@@ -137,6 +148,10 @@ func (a *app) addProfiles(root *cobra.Command) {
 			return nil
 		})
 		if err != nil {
+			var published *fileio.PublishedError
+			if errors.As(err, &published) {
+				createdToken = ""
+			}
 			return err
 		}
 		createdToken = ""
@@ -170,6 +185,9 @@ func (a *app) addProfiles(root *cobra.Command) {
 		if len(args) > 0 {
 			name = args[0]
 		}
+		if name == "" {
+			name = os.Getenv("CLOUDFLARE_PROFILE")
+		}
 		c, err := config.Load(a.path)
 		if err != nil {
 			return err
@@ -184,7 +202,6 @@ func (a *app) addProfiles(root *cobra.Command) {
 		return a.render(map[string]any{"name": name, "profile": p}, false, config.Profile{})
 	}})
 	for _, action := range []string{"use", "remove"} {
-		action := action
 		profile.AddCommand(&cobra.Command{Use: action + " NAME", Args: cobra.ExactArgs(1), RunE: func(_ *cobra.Command, args []string) error {
 			return config.Update(a.path, func(c *config.Config) error {
 				if _, ok := c.Profiles[args[0]]; !ok {
@@ -205,7 +222,6 @@ func (a *app) addProfiles(root *cobra.Command) {
 	root.AddCommand(profile)
 	group := &cobra.Command{Use: "config", Short: "查看并检查本地配置（不连接 API）"}
 	for _, action := range []string{"show", "check"} {
-		action := action
 		group.AddCommand(&cobra.Command{Use: action, Args: cobra.NoArgs, RunE: func(*cobra.Command, []string) error {
 			c, err := config.Load(a.path)
 			if err != nil {

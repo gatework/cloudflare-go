@@ -21,6 +21,10 @@ profile 选择：`--profile` → `CLOUDFLARE_PROFILE` → `default_profile`。�
 
 字段名保持领域含义，不接受 API Token 明文属性、重复属性或未知属性。profile 名称为 1–64 个字母数字、下划线或连字符，以字母数字开头。`init` 修改所选 profile 时保留其他 profile 和未指定的可选设置。`profile remove` 只删除配置引用，不删除外部凭据文件。
 
+配置字段必须使用文档中的准确拼写；profile 名称区分大小写。JSON 输入最多嵌套 128 层。`init --token-file` 的相对路径以当前工作目录为基准；配置内已有相对路径仍以配置目录为基准。初始化期间同一 profile 被另一个进程修改时返回冲突，保留较新的配置。
+
+显式 `--zone-id` 覆盖 profile 的默认 Zone，并只查询一次 Zone 详情；同时显式指定 `--zone` 时二者必须一致。
+
 公共参数：
 
 | 参数 | 默认与行为 |
@@ -46,3 +50,5 @@ JSON 结果：list 为数组，get/create/update 为单条 API 记录，delete �
 CSV 固定列：zone_id、zone_name、id、type、name、content、ttl、proxied、proxiable、priority、comment、tags、data、settings、meta、private_routing、created_on、modified_on、comment_modified_on、tags_modified_on、record_json。嵌套值为 JSON 单元格，record_json 保留未知字段。默认 CSV 不添加 BOM。
 
 每次响应限制 16 MiB、每页请求 100 条；显式分页持续传递原 context，验证分页前进，不固定截断页数。GET 最多重试两次；POST/PATCH/DELETE 不自动重试。单次 HTTP 请求 30 秒，不接受 HTTP 重定向。
+
+提前出现的空页、页码异常、同 ID 数据变化、响应对象类型错误以及详情/修改/删除返回错误 ID 都会报错。单类型、代理状态与内容条件会同时交给 API 筛选，并继续在本地检查大小写精确内容和 DNS 标签边界；多个类型仍按本地 OR 筛选。

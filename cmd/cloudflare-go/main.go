@@ -2,10 +2,11 @@ package main
 
 import (
 	"context"
-	"github.com/gatework/cloudflare-go/internal/cli"
 	"os"
 	"os/signal"
 	"syscall"
+
+	"github.com/gatework/cloudflare-go/internal/cli"
 )
 
 func main() {
