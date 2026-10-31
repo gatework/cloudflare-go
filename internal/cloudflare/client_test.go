@@ -150,3 +150,47 @@ func TestProtocolCancellationAndBind(t *testing.T) {
 		t.Fatal(text, err)
 	}
 }
+
+func TestPaginationPastOneHundredPagesAndUnknownTypes(t *testing.T) {
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		page := calls.Add(1)
+		fmt.Fprintf(w, `{"success":true,"result":[{"id":"%d","name":"example.com","type":"FUTURE_TYPE","new_field":null}],"result_info":{"page":%d,"total_pages":101}}`, page, page)
+	}))
+	defer server.Close()
+	client := New("token", server.URL+"/", server.Client().Transport)
+	defer client.Close()
+	records, err := client.ListRecords(context.Background(), zoneID, dns.Query{Domain: "example.com"}, 1<<20)
+	if err != nil || len(records) != 101 || calls.Load() != 101 {
+		t.Fatal(len(records), calls.Load(), err)
+	}
+	if !strings.Contains(string(records[0].Raw), `"new_field":null`) {
+		t.Fatal("unknown type fields were lost")
+	}
+}
+
+func TestSecondPageUsesOriginalCancellation(t *testing.T) {
+	second := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Query().Get("page") == "2" {
+			close(second)
+			<-r.Context().Done()
+			return
+		}
+		fmt.Fprint(w, `{"success":true,"result":[{"id":"1","name":"example.com","type":"TXT"}],"result_info":{"page":1,"total_pages":2}}`)
+	}))
+	defer server.Close()
+	client := New("token", server.URL+"/", server.Client().Transport)
+	defer client.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { _, err := client.ListRecords(ctx, zoneID, dns.Query{}, 1<<20); done <- err }()
+	<-second
+	cancel()
+	if err := <-done; !errors.Is(err, context.Canceled) {
+		t.Fatal("later page escaped cancellation", err)
+	}
+}

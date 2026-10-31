@@ -19,7 +19,17 @@ func (a *app) addProfiles(root *cobra.Command) {
 	var tokenEnv, account, defaultZone string
 	var makeDefault bool
 	initCmd := &cobra.Command{Use: "init", Short: "引导创建或更新命名配置；Token 不写入 JSON", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
+		loaded, err := config.Load(a.path)
+		if err != nil {
+			return &usageError{err}
+		}
 		name := a.profile
+		if name == "" {
+			name = os.Getenv("CLOUDFLARE_PROFILE")
+		}
+		if name == "" {
+			name = loaded.DefaultProfile
+		}
 		if name == "" {
 			name = "default"
 		}
@@ -32,10 +42,7 @@ func (a *app) addProfiles(root *cobra.Command) {
 		if account != "" && !config.ValidID(account) {
 			return usage("account-id 无效")
 		}
-		loaded, err := config.Load(a.path)
-		if err != nil {
-			return &usageError{err}
-		}
+
 		p := loaded.Profiles[name]
 		createdToken := ""
 		defer func() {

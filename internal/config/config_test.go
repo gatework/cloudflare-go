@@ -41,7 +41,7 @@ func TestProfilesAndAtomicUpdates(t *testing.T) {
 	}
 }
 func TestStrictConfiguration(t *testing.T) {
-	for _, input := range []string{`{"profiles":{},"unexpected":true}`, `{"profiles":{"a":{"token_file":"file","token_env":"TOKEN"}}}`, `{"profiles":{},"default_profile":"missing"}`, `{"profiles":{"../bad":{}}}`, `{"profiles":{"a":{"api_token":"secret"}}}`} {
+	for _, input := range []string{`{"profiles":{"a":null}}`, `{"profiles":{},"unexpected":true}`, `{"profiles":{"a":{"token_file":"file","token_env":"TOKEN"}}}`, `{"profiles":{},"default_profile":"missing"}`, `{"profiles":{"../bad":{}}}`, `{"profiles":{"a":{"api_token":"secret"}}}`} {
 		if _, err := Decode([]byte(input)); err == nil {
 			t.Fatal(input)
 		}

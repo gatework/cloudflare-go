@@ -40,6 +40,32 @@ func Decode(data []byte) (Config, error) {
 	if _, err := fileio.JSONObject(data); err != nil {
 		return c, err
 	}
+	var tree any
+	_ = json.Unmarshal(data, &tree)
+	var nonnull func(any) bool
+	nonnull = func(v any) bool {
+		if v == nil {
+			return false
+		}
+		switch x := v.(type) {
+		case map[string]any:
+			for _, value := range x {
+				if !nonnull(value) {
+					return false
+				}
+			}
+		case []any:
+			for _, value := range x {
+				if !nonnull(value) {
+					return false
+				}
+			}
+		}
+		return true
+	}
+	if !nonnull(tree) {
+		return c, errors.New("配置字段不能为 null")
+	}
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
 	if decoder.Decode(&c) != nil {
