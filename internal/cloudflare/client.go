@@ -59,7 +59,7 @@ func (t transport) RoundTrip(request *http.Request) (*http.Response, error) {
 		return nil, errors.New("读取 Cloudflare 响应失败")
 	}
 	if len(data) > 16<<20 {
-		return nil, errors.New("Cloudflare 单次响应超过 16 MiB")
+		return nil, errors.New("单次 Cloudflare 响应超过 16 MiB")
 	}
 	response.Body = io.NopCloser(bytes.NewReader(data))
 	m, _ := request.Context().Value(metadataKey{}).(*metadata)
@@ -154,12 +154,12 @@ func (c *Client) ListZones(ctx context.Context, name, account string) ([]dns.Zon
 			return nil, failure(ctx, m, err)
 		}
 		if m.page != 0 && m.page != page {
-			return nil, errors.New("Zone 分页编号不一致")
+			return nil, errors.New("区域分页编号不一致")
 		}
 		fresh := 0
 		for _, z := range batch.Result {
 			if z.ID == "" || z.Name == "" {
-				return nil, errors.New("Zone 响应缺少身份")
+				return nil, errors.New("区域响应缺少身份")
 			}
 			if seen[z.ID] {
 				continue
@@ -174,7 +174,7 @@ func (c *Client) ListZones(ctx context.Context, name, account string) ([]dns.Zon
 			break
 		}
 		if fresh == 0 {
-			return nil, errors.New("Zone 分页未前进")
+			return nil, errors.New("区域分页未前进")
 		}
 	}
 

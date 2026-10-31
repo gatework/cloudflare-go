@@ -153,7 +153,7 @@ func (a *app) context(c *cobra.Command, dump bool) (context.Context, context.Can
 	ctx, cancel := context.WithTimeout(c.Context(), duration)
 	return ctx, cancel, nil
 }
-func (a *app) render(value any, dump bool, p config.Profile) error {
+func (a *app) formatFor(dump bool, p config.Profile) string {
 	format := a.format
 	if format == "" && a.output != "" {
 		format = map[string]string{".json": "json", ".csv": "csv", ".txt": "txt", ".zone": "bind"}[strings.ToLower(filepath.Ext(a.output))]
@@ -170,6 +170,10 @@ func (a *app) render(value any, dump bool, p config.Profile) error {
 			}
 		}
 	}
+	return format
+}
+func (a *app) render(value any, dump bool, p config.Profile) error {
+	format := a.formatFor(dump, p)
 	if !output.Valid(format) {
 		return usage("format 应为 table、txt、csv、json 或 bind")
 	}

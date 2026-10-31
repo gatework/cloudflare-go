@@ -85,6 +85,9 @@ func Render(w io.Writer, format string, value any, safe bool) error {
 		}
 		return nil
 	case "table":
+		if len(rows) > 0 && rows[0]["type"] == nil {
+			return genericTable(w, rows)
+		}
 		tw := tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)
 		if _, err = fmt.Fprintln(tw, "NAME\tTYPE\tCONTENT\tTTL\tPROXIED\tID"); err != nil {
 			return err
@@ -97,7 +100,7 @@ func Render(w io.Writer, format string, value any, safe bool) error {
 			if len(content) > 100 {
 				content = string([]rune(content)[:min(100, len([]rune(content)))]) + "…"
 			}
-			if _, err = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", escape(cell(row["name"])), cell(row["type"]), escape(content), cell(row["ttl"]), cell(row["proxied"]), escape(cell(row["id"]))); err != nil {
+			if _, err = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", escape(cell(row["name"])), escape(cell(row["type"])), escape(content), escape(cell(row["ttl"])), escape(cell(row["proxied"])), escape(cell(row["id"]))); err != nil {
 				return err
 			}
 		}
@@ -160,4 +163,36 @@ func spreadsheet(s string) string {
 		return "'" + s
 	}
 	return s
+}
+
+func genericTable(w io.Writer, rows []map[string]json.RawMessage) error {
+	keys := []string{}
+	seen := map[string]bool{}
+	for _, row := range rows {
+		for key := range row {
+			if !seen[key] {
+				seen[key] = true
+				keys = append(keys, key)
+			}
+		}
+	}
+	sort.Strings(keys)
+	tw := tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)
+	headers := make([]string, len(keys))
+	for i, key := range keys {
+		headers[i] = strings.ToUpper(key)
+	}
+	if _, err := fmt.Fprintln(tw, strings.Join(headers, "\t")); err != nil {
+		return err
+	}
+	for _, row := range rows {
+		values := make([]string, len(keys))
+		for i, key := range keys {
+			values[i] = escape(cell(row[key]))
+		}
+		if _, err := fmt.Fprintln(tw, strings.Join(values, "\t")); err != nil {
+			return err
+		}
+	}
+	return tw.Flush()
 }

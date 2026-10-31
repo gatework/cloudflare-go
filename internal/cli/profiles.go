@@ -222,7 +222,7 @@ func (a *app) addProfiles(root *cobra.Command) {
 }
 func normalizeZone(value string) (string, error) {
 	if strings.TrimSpace(value) == "" {
-		return "", errors.New("Zone 名称不能为空")
+		return "", errors.New("区域名称不能为空")
 	}
 	return normalizeName(value, "", false)
 }

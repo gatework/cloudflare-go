@@ -11,7 +11,7 @@ import (
 func Validate(token string) (string, error) {
 	token = strings.TrimSpace(token)
 	if token == "" || len(token) > 8192 || strings.IndexFunc(token, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) }) >= 0 {
-		return "", errors.New("Cloudflare Token 为空或格式无效")
+		return "", errors.New("凭据为空或格式无效，请检查 Cloudflare Token")
 	}
 	return token, nil
 }

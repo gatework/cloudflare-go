@@ -88,14 +88,15 @@ func (a *app) records(cmd *cobra.Command, args []string, action string, f *recor
 	if format == "bind" && action != "dump" {
 		return usage("BIND 格式仅支持整 Zone dump")
 	}
-	if a.spreadsheet && format != "csv" && !(format == "" && strings.EqualFold(filepath.Ext(a.output), ".csv")) {
-		return usage("spreadsheet-safe 只用于 CSV")
-	}
+
 	api, close, p, err := a.connect()
 	if err != nil {
 		return err
 	}
 	defer close()
+	if a.spreadsheet && a.formatFor(action == "dump", p) != "csv" {
+		return usage("spreadsheet-safe 只用于 CSV")
+	}
 	zoneName := a.zoneName
 	if zoneName == "" {
 		zoneName = p.DefaultZone

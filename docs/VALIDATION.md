@@ -15,3 +15,15 @@ gh attestation verify cloudflare-go_v0.1.0_linux_amd64.tar.gz --repo gatework/cl
 每个包包含二进制、配置示例、文档、CHANGELOG、go.mod/go.sum、构建元数据和依赖许可证。源码标签不可移动，公开附件不可覆盖。上传中断可以重跑，只补齐缺失附件；未知附件、内容不一致或标签移动会停止发布。
 
 macOS 为未公证的 Go 单文件程序；Linux CGO_ENABLED=0，归档验证拒绝带动态解释器的 ELF。测试不声称已执行真实生产 DNS 写入，也不把 API 查询分页当作事务快照。真实写入验收仅可通过显式启用的测试 Zone 集成测试执行。
+
+
+真实 API 测试默认跳过。必须指定专门测试 Zone：
+
+```sh
+CLOUDFLARE_INTEGRATION=read CLOUDFLARE_TEST_ZONE_ID=ZONE_ID \
+  CLOUDFLARE_TEST_API_TOKEN=TOKEN_FROM_SECURE_ENV go test -v ./integration
+# write 显式启用创建、读取、修改、删除本轮唯一 TXT 记录：
+# CLOUDFLARE_INTEGRATION=write ... go test -v ./integration
+```
+
+实际运行时通过安全环境注入 Token，不要把真实值写入 shell 历史。write 模式只清理本轮 API 返回的 ID，并先核对唯一名称/内容，不按前缀批量删除。
