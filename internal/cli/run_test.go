@@ -172,3 +172,19 @@ func TestInitPreservesOtherProfileFields(t *testing.T) {
 		t.Fatal(c)
 	}
 }
+
+func TestDumpSupportsServiceAndWildcardOwners(t *testing.T) {
+	t.Setenv("CLOUDFLARE_API_TOKEN", "fixture-token")
+	t.Setenv("CLOUDFLARE_PROFILE", "")
+	for _, owner := range []string{"_acme-challenge.example.com", "_sip._tcp.example.com", "*.example.com"} {
+		f := &apiFixture{record: map[string]any{"id": id, "name": owner, "type": "TXT", "content": "verification", "ttl": 1}}
+		code, out, errOut := command(t, f, filepath.Join(t.TempDir(), "config.json"), "dns", "dump", owner, "--exact")
+		if code != 0 {
+			t.Fatal(owner, code, errOut)
+		}
+		var dump dns.Dump
+		if json.Unmarshal([]byte(out), &dump) != nil || len(dump.Records) != 1 || dump.Query.Domain != owner {
+			t.Fatal("owner was not exported", out)
+		}
+	}
+}

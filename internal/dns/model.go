@@ -127,6 +127,15 @@ func (s *Service) Zone(ctx context.Context, domain, zoneName, zoneID string) (Zo
 			name = zoneName
 		}
 		for name != "" {
+			// Service labels and wildcard owners are legal record names, but
+			// cannot be Zone names. Skip them while walking toward the apex.
+			if _, err := Name(name, "", false); err != nil {
+				if zoneName != "" {
+					return zone, err
+				}
+				_, name, _ = strings.Cut(name, ".")
+				continue
+			}
 			zones, err := s.API.ListZones(ctx, name, s.AccountID)
 			if err != nil {
 				return zone, err

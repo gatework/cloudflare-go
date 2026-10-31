@@ -148,7 +148,7 @@ func (a *app) records(cmd *cobra.Command, args []string, action string, f *recor
 			}
 		}
 	} else {
-		domain, err = normalizeName(domain, zoneName, action != "list" && action != "dump")
+		domain, err = normalizeName(domain, zoneName, true)
 		if err != nil {
 			return err
 		}
