@@ -1,0 +1,224 @@
+import contextlib
+import copy
+import io
+from pathlib import Path
+import subprocess
+import tempfile
+import unittest
+from unittest.mock import patch
+
+from publish_release import GitHub, publish_release, changelog_notes
+from test_package import COMMIT, VERSION, make_archive
+
+
+class FakeGitHub:
+    repository = "gatework/cloudflare-go"
+
+    def __init__(self):
+        self.commit = COMMIT
+        self.release = None
+        self.remote = {}
+        self.uploaded = []
+        self.deleted = []
+        self.published = 0
+        self.fail_upload_once = False
+        self.tag_moves = False
+        self.lookup_error = False
+        self.next_id = 1
+
+    def tag_commit(self, tag):
+        return self.commit
+
+    def find_release(self, tag):
+        if self.lookup_error:
+            raise subprocess.CalledProcessError(1, "gh", stderr="HTTP 403")
+        return copy.deepcopy(self.release)
+
+    def create_draft(self, tag, commit, prerelease, notes):
+        self.release = {"id": 1, "draft": True, "tag_name": tag, "prerelease": prerelease, "html_url": "https://example.invalid/release"}
+        return copy.deepcopy(self.release)
+
+    def assets(self, release):
+        return [{"id": item["id"], "name": name, "size": len(item["data"]), "state": item["state"]} for name, item in self.remote.items()]
+
+    def upload(self, tag, path):
+        self.uploaded.append(path.name)
+        self.remote[path.name] = {"id": self.next_id, "state": "uploaded", "data": path.read_bytes()}
+        self.next_id += 1
+        if self.fail_upload_once:
+            self.fail_upload_once = False
+            raise subprocess.CalledProcessError(1, "gh", stderr="response lost after upload")
+
+    def download(self, tag, name, directory):
+        path = Path(directory) / name
+        path.write_bytes(self.remote[name]["data"])
+        if self.tag_moves:
+            self.commit = "b" * 40
+        return path
+
+    def delete_incomplete(self, asset):
+        self.deleted.append(asset["id"])
+        del self.remote[asset["name"]]
+
+    def publish(self, release, prerelease):
+        self.published += 1
+        self.release["draft"] = False
+        return copy.deepcopy(self.release)
+
+
+class PublishReleaseTest(unittest.TestCase):
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        self.directory = Path(self.directory.name)
+        make_archive(self.directory)
+        make_archive(self.directory, "arm64")
+        make_archive(self.directory, system="darwin")
+        make_archive(self.directory, "arm64", system="darwin")
+        self.github = FakeGitHub()
+
+    def publish(self, tag=VERSION):
+        with contextlib.redirect_stdout(io.StringIO()):
+            publish_release(self.github, tag, COMMIT, self.directory)
+
+    def test_publish_and_rerun_never_replace_uploaded_bytes(self):
+        self.publish()
+        self.assertEqual(self.github.published, 1)
+        self.assertEqual(len(self.github.uploaded), 5)
+        before = copy.deepcopy(self.github.remote)
+        self.publish()
+        self.assertEqual(self.github.remote, before)
+        self.assertEqual(self.github.published, 1)
+        self.assertEqual(len(self.github.uploaded), 5)
+
+    def test_upload_response_loss_resumes_existing_draft(self):
+        self.github.fail_upload_once = True
+        with self.assertRaises(subprocess.CalledProcessError):
+            self.publish()
+        self.assertTrue(self.github.release["draft"])
+        self.assertEqual(self.github.published, 0)
+        self.publish()
+        self.assertFalse(self.github.release["draft"])
+        self.assertEqual(len(self.github.uploaded), 5)
+
+    def test_only_incomplete_draft_placeholders_can_be_deleted(self):
+        self.github.create_draft(VERSION, COMMIT, False, "")
+        name = next(self.directory.glob("*amd64.tar.gz")).name
+        self.github.remote[name] = {"id": 99, "state": "starter", "data": b""}
+        self.publish()
+        self.assertEqual(self.github.deleted, [99])
+
+    def test_published_asset_mismatch_is_never_overwritten(self):
+        self.publish()
+        name = next(iter(self.github.remote))
+        self.github.remote[name]["data"] = b"wrong content"
+        with self.assertRaises(ValueError):
+            self.publish()
+        self.assertEqual(len(self.github.uploaded), 5)
+        self.assertEqual(self.github.deleted, [])
+        self.assertEqual(self.github.published, 1)
+
+    def test_missing_published_asset_is_not_repaired_in_place(self):
+        self.publish()
+        del self.github.remote[next(iter(self.github.remote))]
+        with self.assertRaises(ValueError):
+            self.publish()
+        self.assertEqual(len(self.github.uploaded), 5)
+
+    def test_corrupted_draft_asset_refuses_clobber(self):
+        self.github.fail_upload_once = True
+        with self.assertRaises(subprocess.CalledProcessError):
+            self.publish()
+        item = next(iter(self.github.remote.values()))
+        item["data"] = b"x" * len(item["data"])
+        with self.assertRaisesRegex(ValueError, "tested bytes"):
+            self.publish()
+        self.assertEqual(self.github.published, 0)
+        self.assertEqual(self.github.deleted, [])
+
+    def test_api_failure_is_not_missing_release(self):
+        self.github.lookup_error = True
+        with self.assertRaises(subprocess.CalledProcessError):
+            self.publish()
+        self.assertIsNone(self.github.release)
+        self.assertEqual(self.github.uploaded, [])
+
+    def test_moved_tag_does_not_publish(self):
+        self.github.tag_moves = True
+        with self.assertRaisesRegex(ValueError, "tag moved"):
+            self.publish()
+        self.assertTrue(self.github.release["draft"])
+        self.assertEqual(self.github.published, 0)
+
+    def test_unexpected_remote_asset_is_preserved_and_blocks_publication(self):
+        self.github.create_draft(VERSION, COMMIT, False, "")
+        self.github.remote["operator-file"] = {"id": 99, "state": "uploaded", "data": b"keep"}
+        with self.assertRaisesRegex(ValueError, "unexpected"):
+            self.publish()
+        self.assertEqual(self.github.uploaded, [])
+        self.assertEqual(self.github.deleted, [])
+
+    def test_prerelease_stays_prerelease(self):
+        for path in self.directory.iterdir():
+            path.unlink()
+        tag = "v0.1.0-rc.1"
+        make_archive(self.directory, version=tag)
+        make_archive(self.directory, "arm64", version=tag)
+        make_archive(self.directory, version=tag, system="darwin")
+        make_archive(self.directory, "arm64", version=tag, system="darwin")
+        self.publish(tag)
+        self.assertTrue(self.github.release["prerelease"])
+
+    def test_github_latest_policy(self):
+        github = GitHub("gatework/cloudflare-go")
+        with patch.object(github, "api") as api:
+            github.publish({"id": 12}, True)
+            self.assertEqual(api.call_args.args[2]["make_latest"], "false")
+            github.publish({"id": 12}, False)
+            self.assertEqual(api.call_args.args[2]["make_latest"], "legacy")
+
+    def test_annotation_is_peeled_to_commit(self):
+        github = GitHub("gatework/cloudflare-go")
+        with patch.object(github, "api", side_effect=[{"object": {"type": "tag", "sha": "b" * 40}}, {"object": {"type": "commit", "sha": COMMIT}}]):
+            self.assertEqual(github.tag_commit(VERSION), COMMIT)
+
+    def test_new_draft_visibility_delay_is_retried_without_recreating(self):
+        github = GitHub("gatework/cloudflare-go")
+        release = {"id": 12, "tag_name": VERSION, "prerelease": False, "draft": True}
+        with patch.object(github, "command") as command, patch.object(github, "find_release", side_effect=[None, None, release]) as lookup, patch("publish_release.time.sleep") as sleep:
+            self.assertEqual(github.create_draft(VERSION, COMMIT, False, "notes"), release)
+            self.assertEqual(command.call_count, 1)
+            self.assertEqual(lookup.call_count, 3)
+            self.assertEqual(sleep.call_count, 2)
+
+    def test_new_draft_visibility_retry_is_bounded(self):
+        github = GitHub("gatework/cloudflare-go")
+        with patch.object(github, "command") as command, patch.object(github, "find_release", return_value=None) as lookup, patch("publish_release.time.sleep") as sleep:
+            with self.assertRaisesRegex(ValueError, "not visible"):
+                github.create_draft(VERSION, COMMIT, False, "notes")
+            self.assertEqual(command.call_count, 1)
+            self.assertEqual(lookup.call_count, 8)
+            self.assertEqual(sleep.call_count, 7)
+
+    def test_new_draft_lookup_error_is_not_retried_as_absence(self):
+        github = GitHub("gatework/cloudflare-go")
+        with patch.object(github, "command"), patch.object(github, "find_release", side_effect=subprocess.CalledProcessError(1, "gh", stderr="HTTP 403")) as lookup, patch("publish_release.time.sleep") as sleep:
+            with self.assertRaises(subprocess.CalledProcessError):
+                github.create_draft(VERSION, COMMIT, False, "notes")
+            self.assertEqual(lookup.call_count, 1)
+            sleep.assert_not_called()
+
+
+class ChangelogTest(unittest.TestCase):
+    def test_release_notes_are_version_specific_and_required(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "CHANGELOG.md"
+            path.write_text("# Changes\n## v0.2.0\nnew behavior\n## v0.1.0\nold behavior\n", encoding="utf-8")
+            self.assertEqual(changelog_notes("v0.2.0", path), "new behavior")
+            self.assertEqual(changelog_notes("v0.2.0-rc.1", path), "new behavior")
+            with self.assertRaises(ValueError):
+                changelog_notes("v0.3.0", path)
+
+
+if __name__ == "__main__":
+    unittest.main()

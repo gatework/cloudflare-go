@@ -1,0 +1,66 @@
+name: Release
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+defaults:
+  run:
+    shell: bash
+jobs:
+  version:
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - id: version
+        run: |
+          test "$GITHUB_REF_TYPE" = tag
+          python3 -c 'import sys; sys.path.insert(0,"scripts"); from publish_release import changelog_notes; changelog_notes(sys.argv[1])' "$GITHUB_REF_NAME"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git rev-parse "refs/tags/${GITHUB_REF_NAME}^{commit}")" = "$GITHUB_SHA"
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+          printf 'version=%s\n' "$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"
+  verify:
+    needs: version
+    uses: ./.github/workflows/ci.yml
+    with:
+      version: ${{ needs.version.outputs.version }}
+    permissions:
+      contents: read
+  publish:
+    needs: [version, verify]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    env:
+      RELEASE_VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          pattern: package-*
+          merge-multiple: true
+          path: dist
+      - run: python3 scripts/package.py checksums dist "$RELEASE_VERSION" "$GITHUB_SHA"
+      - uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6
+        with:
+          subject-path: |
+            dist/*.tar.gz
+            dist/checksums.txt
+          create-storage-record: false
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/publish_release.py "$RELEASE_VERSION" "$GITHUB_SHA" --repo "$GITHUB_REPOSITORY"

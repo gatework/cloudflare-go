@@ -1,0 +1,4 @@
+cloudflare-go is an independent project by gatework, not an official Cloudflare product.
+Cloudflare API integration uses cloudflare/cloudflare-go (Apache-2.0).
+File handling and terminal routines adapted from gatework/derper-go (MIT).
+See licenses/ in release archives for dependency notices.

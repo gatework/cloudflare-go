@@ -1,0 +1,92 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      version:
+        type: string
+        default: dev
+permissions:
+  contents: read
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref_type != 'tag' }}
+defaults:
+  run:
+    shell: bash
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: Formatting and module consistency
+        run: |
+          test -z "$(gofmt -l cmd internal)"
+          go mod tidy
+          git diff --exit-code -- go.mod go.sum
+      - run: python3 -m unittest discover -s scripts -p 'test_*.py' -v
+      - run: go test -race -timeout 5m ./...
+      - run: go vet ./...
+      - run: go run honnef.co/go/tools/cmd/staticcheck@v0.8.2 ./...
+      - name: Fuzz untrusted inputs
+        run: |
+          go test ./internal/config -run '^$' -fuzz FuzzDecode -fuzztime 15s
+          go test ./internal/dns -run '^$' -fuzz FuzzRecordNames -fuzztime 15s
+          go test ./internal/fileio -run '^$' -fuzz FuzzJSONObject -fuzztime 15s
+      - run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
+      - run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+  build:
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {os: linux, arch: amd64, runner: ubuntu-24.04}
+          - {os: linux, arch: arm64, runner: ubuntu-24.04-arm}
+          - {os: darwin, arch: amd64, runner: macos-15-intel}
+          - {os: darwin, arch: arm64, runner: macos-15}
+    env:
+      BUILD_VERSION: ${{ inputs.version || 'dev' }}
+      BUILD_OS: ${{ matrix.os }}
+      BUILD_ARCH: ${{ matrix.arch }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: Native platform tests
+        run: go test -timeout 5m ./...
+      - name: Package and run the exact distribution
+        run: |
+          python3 scripts/package.py build "$BUILD_VERSION" "$GITHUB_SHA" "$BUILD_OS" "$BUILD_ARCH"
+          archive="dist/cloudflare-go_${BUILD_VERSION}_${BUILD_OS}_${BUILD_ARCH}.tar.gz"
+          python3 scripts/package.py verify "$archive" "$BUILD_VERSION" "$GITHUB_SHA" "$BUILD_OS" "$BUILD_ARCH"
+          tar -xzf "$archive" -C "$RUNNER_TEMP"
+          binary="$RUNNER_TEMP/cloudflare-go_${BUILD_VERSION}_${BUILD_OS}_${BUILD_ARCH}/cloudflare-go"
+          "$binary" version | grep -F "cloudflare-go $BUILD_VERSION ($GITHUB_SHA),"
+          "$binary" --help
+          "$binary" config check --config examples/config.json
+      - name: Reproduce Linux amd64 archive
+        if: matrix.os == 'linux' && matrix.arch == 'amd64'
+        run: |
+          python3 scripts/package.py build "$BUILD_VERSION" "$GITHUB_SHA" "$BUILD_OS" "$BUILD_ARCH" --output dist/rebuild
+          cmp "dist/cloudflare-go_${BUILD_VERSION}_${BUILD_OS}_${BUILD_ARCH}.tar.gz" "dist/rebuild/cloudflare-go_${BUILD_VERSION}_${BUILD_OS}_${BUILD_ARCH}.tar.gz"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: package-${{ matrix.os }}-${{ matrix.arch }}
+          path: dist/*.tar.gz
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14

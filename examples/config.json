@@ -1,0 +1,7 @@
+{
+  "default_profile": "personal",
+  "profiles": {
+    "personal": {"token_env": "CLOUDFLARE_API_TOKEN"},
+    "work": {"token_env": "CLOUDFLARE_WORK_TOKEN", "default_zone": "example.org"}
+  }
+}
