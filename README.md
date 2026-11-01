@@ -1,6 +1,6 @@
 # cloudflare-go
 
-面向日常运维的 Cloudflare DNS 命令行工具。Go 单文件程序，支持命名配置、单条记录 CRUD、完整域名 dump，以及 table、txt、csv、json 和整 Zone 的 BIND 导出。
+面向日常运维的 Cloudflare DNS 命令行工具。Go 单文件程序，支持命名配置、单条记录 CRUD、完整域名 dump，以及 table、txt、csv、json 和整 Zone 的 BIND 导出。查询还支持 JSONL 逐行记录输出。
 
 这是 gatework 的独立项目，不是 Cloudflare 官方 CLI。底层使用官方 `cloudflare/cloudflare-go/v7 v7.13.1`，不需要 Node.js，也不安装后台服务。组织与错误处理方式参考 `gatework/derper-go`。
 
@@ -18,7 +18,7 @@ cd cloudflare-go_v0.1.1_linux_amd64
 ./cloudflare-go init --profile personal
 ```
 
-`init` 隐藏输入 Token，写入独立的 0600 凭据文件。也可直接引用已有文件或环境变量，不要求初始化：
+`init` 隐藏输入 Token，写入独立的 0600 凭据文件。交互终端会读取可访问的 Zone，引导选择默认域名并验证 DNS 读取；`--offline` 跳过联网。非交互初始化保持显式参数方式，`--check` 可要求保存前通过只读访问检查。也可直接引用已有文件或环境变量，不要求初始化：
 
 ```sh
 cloudflare-go init --profile personal --token-file /secure/cloudflare.token
@@ -44,6 +44,8 @@ cloudflare-go dns dump example.com --format csv --output records.csv
 cloudflare-go dns dump app.example.com --format txt
 cloudflare-go dns dump app.example.com --exact --type TXT --format json
 cloudflare-go dns dump example.com --format bind --output example.com.zone
+cloudflare-go dns dump example.com --output records.jsonl
+cloudflare-go dns list example.com --match-tag env:prod --match-comment Review
 ```
 
 list/dump 默认包括输入名称及其子域，`--exact` 仅匹配该名称。范围限于选定 Zone；不跨独立托管的子 Zone，不扫描公网 DNS。名称比较使用标签边界，不会把 `notexample.com` 当作 `example.com` 的子域。
@@ -52,13 +54,15 @@ JSON 保留 API 原始记录，包括未知字段、空值、`data/settings/meta
 
 DNS CSV 的 `record_json` 保留原始记录，不混入导出的 Zone 元数据；Zone、profile 和变更预览的 CSV 使用各自实际字段。txt/CSV 将 JSON null 显示为 `null`，与空字符串区分。
 
-BIND 调用官方整 Zone 导出接口，不能搭配记录筛选。它保留 Cloudflare 的区域文件内容，但不能替代带 ID、时间戳等详情的 JSON 导出。
+JSONL 每行一条紧凑的原始记录，保留未知字段与数字精度；空集合输出零行，不包含导出元数据，需要 Zone、查询条件和导出时间时使用 JSON。`.jsonl/.ndjson` 可推断格式，仅支持 dns list/get/dump。多个 `--match-tag name:value` 按 AND 组合，注释和标签在本地按大小写精确匹配。
+
+BIND 调用官方整 Zone 导出接口，不能搭配记录筛选。成功响应必须为有效 text/plain，错误页面或超出预算时不发布文件。它保留 Cloudflare 的区域文件内容，但不能替代带 ID、时间戳等详情的 JSON 导出。
 
 普通查询在终端默认 table，管道默认 JSON；dump 默认 JSON。显式 `--format` 优先，否则输出文件的 `.json/.csv/.txt/.zone` 扩展名可决定格式。stdout 只输出数据，诊断与确认写 stderr。
 
 导出分页失败时不输出半份结果。文件在完整编码后原子发布，默认 0600、不覆盖已有文件；显式 `--overwrite` 才替换旧文件。Cloudflare 分页不提供事务快照保证：导出期间记录变化可能导致不同时间点的数据。
 
-分页收集完成后逐条编码，避免复制整份导出数据。`--max-bytes` 限制累计原始记录字节数，并非进程内存上限。大量记录的 table 每 256 行刷新，列宽在各块内对齐。
+分页收集完成后逐条编码，避免复制整份导出数据。`--max-bytes` 限制累计原始记录字节数（Zone 查询和 BIND 导出也遵守该预算），并非进程内存上限。未匹配记录仅保留规范化 JSON 摘要用于分页去重；这降低保留内存，但增加解析开销。大量记录的 table 每 256 行刷新，列宽在各块内对齐。
 
 ## 单条记录管理
 
@@ -100,6 +104,8 @@ DNSKEY 的 `data.flags` 是 16 位整数，NAPTR 的同名字段是字符串；U
 
 见 [配置参考](docs/CONFIGURATION.md)、[测试与发布](docs/VALIDATION.md)、[代码审查与基准](docs/REVIEW.md)、[开源调研](docs/RESEARCH.md) 和 [变更记录](CHANGELOG.md)。
 
+[第三轮审查](docs/REVIEW-3.md)记录分页完整性、输出取消、内存取舍与初始化体验。
+
 [第二轮审查](docs/REVIEW-2.md)记录高级记录语义、凭据回退、写入确认与发行包来源的修复和验证。
 
 ```sh
@@ -107,10 +113,15 @@ cloudflare-go init --profile work --token-env CLOUDFLARE_WORK_TOKEN --default-zo
 cloudflare-go profile list
 cloudflare-go profile use work
 cloudflare-go profile show
+cloudflare-go profile check work --zone example.org
 cloudflare-go --profile personal dns list example.com --format json
 cloudflare-go config show
 cloudflare-go config check
 ```
+
+`profile check` 支持 table/txt/csv/json，只验证实际读取能力，不推断写权限。补全脚本可由 `cloudflare-go completion bash`、`completion zsh` 或 `completion fish` 生成，再按对应 Shell 的方式加载；生成和补全都不读取 Token、不访问远端。
+
+输出编码、刷新和文件发布前检查取消；普通 Writer 已进入的阻塞写入不能被此检查强行中断。发布前观察到取消则保留旧文件。
 
 退出码：0 成功；1 运行/API/输出失败；2 用法或配置错误；3 未找到；4 歧义或冲突；5 写入结果不确定；130 主动取消。
 

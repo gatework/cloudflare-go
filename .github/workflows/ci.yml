@@ -38,7 +38,7 @@ jobs:
       - run: go vet ./...
       - run: go run honnef.co/go/tools/cmd/staticcheck@v0.8.2 ./...
       - name: Record and HTTP validation benchmarks
-        run: go test ./internal/output ./internal/cloudflare -run '^$' -bench 'BenchmarkDump|BenchmarkResponseValidation' -benchmem -benchtime=200ms -count=3 | tee benchmark.txt
+        run: go test ./internal/output ./internal/cloudflare -run '^$' -bench 'BenchmarkDump|BenchmarkResponseValidation|BenchmarkCollection' -benchmem -benchtime=200ms -count=3 | tee benchmark.txt
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: export-benchmark

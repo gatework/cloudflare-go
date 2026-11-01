@@ -23,7 +23,7 @@ func BenchmarkDump(b *testing.B) {
 		}
 	}
 	dump := dns.Dump{SchemaVersion: 1, ExportedAt: time.Unix(0, 0).UTC(), Zone: dns.Zone{ID: "zone", Name: "example.com"}, Records: records}
-	for _, format := range []string{"json", "csv", "txt", "table"} {
+	for _, format := range []string{"json", "jsonl", "csv", "txt", "table"} {
 		b.Run(format, func(b *testing.B) {
 			b.ReportAllocs()
 			for b.Loop() {

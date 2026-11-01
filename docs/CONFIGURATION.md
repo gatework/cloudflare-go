@@ -32,9 +32,9 @@ profile 选择：`--profile` → `CLOUDFLARE_PROFILE` → `default_profile`。�
 | 参数 | 默认与行为 |
 |---|---|
 | `--zone`、`--zone-id` | 不指定时由输入域名向父域查询最长匹配 Zone；两个同时指定时必须一致 |
-| `--timeout` | 2m，dump 为 10m；包括远端查询与重试，删除人工确认后重建执行预算 |
+| `--timeout` | 2m，dump 为 10m；包括远端查询与重试，包含编码与发布检查；删除人工确认、交互选择 Zone 后重建执行预算 |
 | `--max-bytes` | 268435456（256 MiB），收集记录原始 JSON 的累计上限；超过即失败 |
-| `--format` | table/txt/csv/json；整 Zone dump 另支持 bind |
+| `--format` | table/txt/csv/json；dns list/get/dump 另支持 jsonl，整 Zone dump 支持 bind |
 | `--output/-o` | 原子输出文件，0600，不覆盖旧文件 |
 | `--overwrite` | 明确允许替换普通输出文件，不接受符号链接或特殊文件 |
 | `--spreadsheet-safe` | 仅 CSV，给可能的表格公式前缀增加单引号；默认关闭 |
@@ -58,3 +58,19 @@ CSV 固定列：zone_id、zone_name、id、type、name、content、ttl、proxied
 提前出现的空页、页码异常、同 ID 数据变化、响应对象类型错误以及详情/修改/删除返回错误 ID 都会报错。单类型、代理状态与内容条件会同时交给 API 筛选，并继续在本地检查大小写精确内容和 DNS 标签边界；多个类型仍按本地 OR 筛选。
 
 HTTP 错误只有具备有效 Cloudflare 错误结构时才能被识别为明确拒绝。删除核对只接受 HTTP 404 加 Cloudflare 错误码 81044（记录不存在）；代理 HTML、未知路由和其他 404 不能证明记录已删除，继续返回结果不确定。
+
+## 初始化、查询与补全
+
+交互式 `init` 默认在线列出可访问 Zone，以序号选择默认域名；回车保留已有值，`0` 跳过或清除默认 Zone。同名 Zone 属于多个账号时，选择会保存必要的 account_id 约束。零个可访问 Zone 时可不设置默认值，DNS 读取检查明确标为跳过。在线失败时只有用户明确确认才离线保存。
+
+`init --offline` 不连接 API；非交互初始化默认也不联网，`--check` 要求保存前通过检查，且不能与 `--offline` 同时指定。提供 `--default-zone` 时不再弹出选择；已有 profile 的可选设置继续保留。在线检查不会验证 DNS 写权限。
+
+`profile check [NAME]` 支持 --zone/--zone-id，未指定时采用所选 profile 默认 Zone；没有目标 Zone 时仅验证凭据来源与 Zone 读取，DNS 阶段返回 skipped。检查结果是包含 check/status/detail 的数组，支持 json/csv/txt/table；失败检查返回非零退出码，不打印 Token。DNS 读取检查只请求一页、一条记录。
+
+`dns list/get/dump` 支持 `--match-tag name:value`（可重复、AND）和 `--match-comment TEXT`，均在本地按大小写精确核验。多个类型仍为 OR，其他条件为 AND。空注释只匹配显式空字符串，不匹配缺失或 null。筛选条件在 JSON dump 的 query.tags/query.comment 中按需出现。
+
+JSONL 每行一条紧凑原始记录，不增加包裹对象或元数据行。空集合为零字节，内容中的换行仍为 JSON 转义序列；.jsonl/.ndjson 自动推断格式。默认 JSON schema_version 仍为 1，排序与分页成功后才输出的规则不变。
+
+分页统计存在时核对 count 与当前页记录数，跨页 total_count/total_pages 必须一致，最终不同 ID 的数量必须匹配 total_count；不把筛选后数量用于该检查。缺失统计字段时仍读取至空页，检查每页前进；API 分页依旧不是事务快照。
+
+`completion bash|zsh|fish` 生成脚本不需要 HOME 或凭据。补全记录类型、适用输出格式和本地 profile 名称，不读取 Token 文件，不调用 Cloudflare。

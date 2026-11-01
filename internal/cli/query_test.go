@@ -3,6 +3,7 @@ package cli
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/gatework/cloudflare-go/internal/dns"
@@ -35,5 +36,23 @@ func TestJSONLExtensionAndReadSelectors(t *testing.T) {
 	code, _, _ = command(t, f, filepath.Join(dir, "config.json"), "dns", "update", "example.com", "--content", "new", "--format", "jsonl")
 	if code != 2 || f.writes != 0 {
 		t.Fatal("unsupported output caused mutation", code)
+	}
+}
+
+func TestOversizedBINDDoesNotReplaceOutput(t *testing.T) {
+	t.Setenv("CLOUDFLARE_API_TOKEN", "fixture-token")
+	t.Setenv("CLOUDFLARE_PROFILE", "")
+	dir := t.TempDir()
+	path := filepath.Join(dir, "export.zone")
+	if err := os.WriteFile(path, []byte("previous"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	code, out, diagnostic := command(t, &apiFixture{}, filepath.Join(dir, "config.json"), "dns", "dump", "example.com", "--max-bytes", "256", "--output", path, "--overwrite")
+	if code != 1 || out != "" || !strings.Contains(diagnostic, "BIND 结果超过") {
+		t.Fatal(code, out, diagnostic)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil || string(data) != "previous" {
+		t.Fatal("incomplete export replaced file", string(data), err)
 	}
 }

@@ -60,6 +60,7 @@ func (f *fakeAPI) UpdateRecord(_ context.Context, _, _ string, p RecordPatch) (R
 	return Record{}, f.writeErr
 }
 func (f *fakeAPI) DeleteRecord(context.Context, string, string) error { f.writes++; return f.writeErr }
+func (f *fakeAPI) CheckDNSRead(context.Context, string) error         { return nil }
 func (f *fakeAPI) ExportZone(context.Context, string) (string, error) { return "", nil }
 func record(t *testing.T, text string) Record {
 	t.Helper()

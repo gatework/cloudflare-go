@@ -2,7 +2,7 @@
 
 本地：`go test ./...`、`go test -race -timeout 5m ./...`、`go vet ./...`、`python3 -m unittest discover -s scripts -p 'test_*.py'`。
 
-基准：`make bench`。导出测试固定 1,000 条、每条 1 KiB TXT 内容；传输测试固定一页 100 条，测量响应校验。CI 保存 `export-benchmark` 附件，供相同环境下比较；共享 runner 的耗时波动不作为硬性发布门槛。[首轮](REVIEW.md)与[第二轮审查报告](REVIEW-2.md)包含基线、改进结果与测量边界。
+基准：`make bench`。导出测试固定 1,000 条、每条 1 KiB TXT 内容；传输测试固定一页 100 条，测量响应校验。CI 保存 `export-benchmark` 附件，新增 BenchmarkCollection 测量 SDK 解码、分页、筛选、排序到 JSON 输出的完整链路，TestCollectionRetainedHeap 在最后一页前采样堆内存；供相同环境下比较；共享 runner 的耗时波动不作为硬性发布门槛。[首轮](REVIEW.md)与[第二轮审查报告](REVIEW-2.md)、[第三轮审查报告](REVIEW-3.md)包含基线、改进结果与测量边界。
 
 测试使用本地 HTTP 假服务，验证实际官方 SDK 请求的 Bearer 认证、POST/PATCH/DELETE、原始 JSON 保留、精确 false、分页、重试和错误脱敏。CLI 测试通过整个命令/API/输出链路验证 dry-run、CRUD、冲突、删除确认、dump 和 profile 更新。名称、配置与 JSON 解析器提供 fuzz 入口。
 

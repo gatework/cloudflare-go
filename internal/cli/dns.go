@@ -24,13 +24,33 @@ func normalizeName(value, zone string, record bool) (string, error) {
 }
 
 type recordFlags struct {
-	matchTags                                                                                             []string
-	matchComment                                                                                          string
-	types                                                                                                 []string
-	exact, yes, dryRun, proxied, clearTags                                                                bool
-	id, content, contentFile, matchContent, ttl, comment, file, newName, target, params, caaTag, caaValue string
-	priority, weight, port, caaFlags                                                                      int
-	tags                                                                                                  []string
+	types        []string
+	exact        bool
+	id           string
+	matchContent string
+	matchTags    []string
+	matchComment string
+
+	yes         bool
+	dryRun      bool
+	proxied     bool
+	content     string
+	contentFile string
+	ttl         string
+	comment     string
+	tags        []string
+	clearTags   bool
+	file        string
+	newName     string
+
+	target   string
+	params   string
+	priority int
+	weight   int
+	port     int
+	caaFlags int
+	caaTag   string
+	caaValue string
 }
 
 func (a *app) addDNS(root *cobra.Command) {

@@ -32,15 +32,25 @@ func (e *usageError) Unwrap() error { return e.err }
 func usage(text string) error       { return &usageError{errors.New(text)} }
 
 type app struct {
-	in                                                         io.Reader
-	out, err                                                   io.Writer
-	interactive                                                bool
-	explicitConfig                                             bool
-	path, profile, tokenFile, zoneName, zoneID, format, output string
-	timeout                                                    time.Duration
-	overwrite, spreadsheet                                     bool
-	maxBytes                                                   int64
-	factory                                                    func(string) (dns.API, func())
+	in          io.Reader
+	out         io.Writer
+	err         io.Writer
+	interactive bool
+	factory     func(string) (dns.API, func())
+
+	explicitConfig bool
+	path           string
+	profile        string
+	tokenFile      string
+	zoneName       string
+	zoneID         string
+
+	format      string
+	output      string
+	overwrite   bool
+	spreadsheet bool
+	timeout     time.Duration
+	maxBytes    int64
 }
 
 func Run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer) int {
@@ -85,6 +95,9 @@ func (a *app) execute(ctx context.Context, args []string) int {
 func (a *app) command() *cobra.Command {
 	root := &cobra.Command{Use: "cloudflare-go", Short: "Cloudflare DNS 记录管理与完整导出", SilenceErrors: true, SilenceUsage: true, RunE: func(c *cobra.Command, _ []string) error { return c.Help() }}
 	root.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {
+		if cmd.Name() == "__complete" || cmd.Name() == "__completeNoDesc" {
+			return nil
+		}
 		if err := a.preflight(cmd, args); err != nil {
 			return err
 		}
@@ -126,6 +139,7 @@ func (a *app) command() *cobra.Command {
 	a.addProfiles(root)
 	a.addZones(root)
 	a.addDNS(root)
+	a.addCompletion(root)
 	return root
 }
 

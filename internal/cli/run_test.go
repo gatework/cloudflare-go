@@ -38,6 +38,10 @@ func (f *apiFixture) serve(w http.ResponseWriter, r *http.Request) {
 		result = []any{map[string]any{"id": zone, "name": "example.com", "account": map[string]string{"id": "33333333333333333333333333333333"}}}
 	case r.URL.Path == "/zones/"+zone:
 		result = map[string]any{"id": zone, "name": "example.com", "account": map[string]string{"id": "33333333333333333333333333333333"}}
+	case strings.HasSuffix(r.URL.Path, "/dns_records/export"):
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		fmt.Fprint(w, strings.Repeat("example.com. 300 IN A 192.0.2.1\n", 20))
+		return
 	case strings.HasSuffix(r.URL.Path, "/dns_records") && r.Method == "GET":
 		result = []any{}
 		if f.record != nil {

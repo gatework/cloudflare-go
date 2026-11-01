@@ -3,6 +3,7 @@ package cli
 import (
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/gatework/cloudflare-go/internal/config"
@@ -20,6 +21,16 @@ func (a *app) preflight(cmd *cobra.Command, args []string) error {
 	if cmd.Flags().Changed("timeout") && a.timeout < time.Millisecond || a.maxBytes < 1 {
 		return usage("timeout 和 max-bytes 必须大于零")
 	}
+	if cmd.Name() == "init" {
+		if cmd.Flags().Changed("offline") && cmd.Flags().Changed("check") {
+			return usage("offline 与 check 互斥")
+		}
+		for _, flag := range []string{"format", "output", "spreadsheet-safe", "zone", "zone-id"} {
+			if cmd.Flags().Changed(flag) {
+				return usage("init 不接受 --" + flag + "；默认域名请用 --default-zone")
+			}
+		}
+	}
 	if err := a.validateOutput(); err != nil {
 		return err
 	}
@@ -33,7 +44,7 @@ func (a *app) preflight(cmd *cobra.Command, args []string) error {
 	if cmd.Flags().Changed("match-tag") {
 		tags, _ := cmd.Flags().GetStringArray("match-tag")
 		for _, tag := range tags {
-			if !utf8.ValidString(tag) || !strings.Contains(tag, ":") || strings.HasPrefix(tag, ":") {
+			if !utf8.ValidString(tag) || strings.IndexFunc(tag, unicode.IsControl) >= 0 || !strings.Contains(tag, ":") || strings.HasPrefix(tag, ":") {
 				return usage("match-tag 需要 name:value 标签")
 			}
 		}
@@ -46,6 +57,13 @@ func (a *app) preflight(cmd *cobra.Command, args []string) error {
 	}
 	if a.spreadsheet && (a.format != "" || a.output != "") && format != "csv" {
 		return usage("spreadsheet-safe 只用于 CSV")
+	}
+	if cmd.Flags().Changed("zone") {
+		name, err := normalizeZone(a.zoneName)
+		if err != nil {
+			return err
+		}
+		a.zoneName = name
 	}
 	for _, name := range []string{"id", "zone-id"} {
 		if cmd.Flags().Changed(name) {

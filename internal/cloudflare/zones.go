@@ -51,7 +51,7 @@ func (c *Client) ListZones(ctx context.Context, name, account string, maxBytes i
 			}
 			total += int64(len(z.JSON.RawJSON()))
 			if total > maxBytes {
-				return nil, errors.New("Zone 结果超过 --max-bytes")
+				return nil, errors.New("区域结果超过 --max-bytes")
 			}
 			if z.ID == "" || z.Name == "" {
 				return nil, errors.New("区域响应缺少身份")

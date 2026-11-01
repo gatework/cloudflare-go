@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/netip"
+	"slices"
 	"strconv"
 	"strings"
 	"unicode"
@@ -13,14 +14,15 @@ import (
 	"github.com/gatework/cloudflare-go/internal/fileio"
 )
 
+var recordTypes = [...]string{"A", "AAAA", "CNAME", "TXT", "MX", "NS", "PTR", "CAA", "SRV", "HTTPS", "SVCB", "CERT", "DNSKEY", "DS", "LOC", "NAPTR", "SMIMEA", "SSHFP", "TLSA", "URI", "OPENPGPKEY"}
+
+func RecordTypes() []string { return slices.Clone(recordTypes[:]) }
 func Type(t string) (string, error) {
 	t = strings.ToUpper(t)
-	switch t {
-	case "A", "AAAA", "CNAME", "TXT", "MX", "NS", "PTR", "CAA", "SRV", "HTTPS", "SVCB", "CERT", "DNSKEY", "DS", "LOC", "NAPTR", "SMIMEA", "SSHFP", "TLSA", "URI", "OPENPGPKEY":
+	if slices.Contains(recordTypes[:], t) {
 		return t, nil
-	default:
-		return "", errors.New("不支持的 DNS 记录类型")
 	}
+	return "", errors.New("不支持的 DNS 记录类型")
 }
 func DecodePatch(data []byte) (RecordPatch, error) {
 	object, err := fileio.JSONObject(data)

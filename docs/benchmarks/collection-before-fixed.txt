@@ -1,0 +1,11 @@
+goos: linux
+goarch: amd64
+pkg: github.com/gatework/cloudflare-go/internal/cloudflare
+cpu: AMD EPYC 7K62 48-Core Processor
+BenchmarkCollection/filtered=true-2         	       5	 351903623 ns/op	157196452 B/op	  587145 allocs/op
+BenchmarkCollection/filtered=true-2         	       5	 322847603 ns/op	157153584 B/op	  586416 allocs/op
+BenchmarkCollection/filtered=true-2         	       5	 329671663 ns/op	157147091 B/op	  586411 allocs/op
+BenchmarkCollection/filtered=true-2         	       5	 337119080 ns/op	157151729 B/op	  586416 allocs/op
+BenchmarkCollection/filtered=true-2         	       5	 328082737 ns/op	157151080 B/op	  586412 allocs/op
+PASS
+ok  	github.com/gatework/cloudflare-go/internal/cloudflare	8.418s

@@ -127,6 +127,7 @@ type API interface {
 	UpdateRecord(context.Context, string, string, RecordPatch) (Record, error)
 	DeleteRecord(context.Context, string, string) error
 	ExportZone(context.Context, string) (string, error)
+	CheckDNSRead(context.Context, string) error
 }
 type Service struct {
 	API       API

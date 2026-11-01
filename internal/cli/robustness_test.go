@@ -132,7 +132,7 @@ func TestInitDetectsConcurrentProfileChange(t *testing.T) {
 	}}
 	var diagnostic bytes.Buffer
 	a := &app{in: input, out: io.Discard, err: &diagnostic, interactive: true, path: path}
-	if code := a.execute(t.Context(), []string{"init"}); code != 4 {
+	if code := a.execute(t.Context(), []string{"init", "--offline"}); code != 4 {
 		t.Fatal(code, diagnostic.String())
 	}
 	c, err := config.Load(path)

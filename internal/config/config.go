@@ -3,9 +3,9 @@ package config
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
-	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -134,6 +134,13 @@ func (c Config) Select(name, base string) (Profile, error) {
 	return p, nil
 }
 func Update(path string, change func(*Config) error) error {
+	return UpdateContext(context.Background(), path, change)
+}
+
+func UpdateContext(ctx context.Context, path string, change func(*Config) error) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return err
@@ -157,5 +164,13 @@ func Update(path string, change func(*Config) error) error {
 	if _, err = Decode(data); err != nil {
 		return err
 	}
-	return fileio.Publish(path, true, func(w io.Writer) error { _, err := w.Write(append(data, '\n')); return err })
+	out, err := fileio.NewOutput(path, true)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+	if _, err := out.Write(append(data, '\n')); err != nil {
+		return err
+	}
+	return out.CommitContext(ctx)
 }
