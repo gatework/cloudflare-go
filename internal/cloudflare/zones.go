@@ -12,7 +12,7 @@ import (
 	"github.com/gatework/cloudflare-go/internal/dns"
 )
 
-func (c *Client) ListZones(ctx context.Context, name, account string) ([]dns.Zone, error) {
+func (c *Client) ListZones(ctx context.Context, name, account string, maxBytes int64) ([]dns.Zone, error) {
 	ctx, m := callContext(ctx)
 	p := zones.ZoneListParams{}
 	if name != "" {
@@ -26,6 +26,10 @@ func (c *Client) ListZones(ctx context.Context, name, account string) ([]dns.Zon
 		p.Account.Value.ID.Present = true
 		p.Account.Present = true
 	}
+	if maxBytes <= 0 {
+		maxBytes = 256 << 20
+	}
+	var total int64
 	out := []dns.Zone{}
 	seen := map[string]dns.Zone{}
 	pagination := pageTracker{}
@@ -42,6 +46,13 @@ func (c *Client) ListZones(ctx context.Context, name, account string) ([]dns.Zon
 		}
 		fresh := 0
 		for _, z := range batch.Result {
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
+			total += int64(len(z.JSON.RawJSON()))
+			if total > maxBytes {
+				return nil, errors.New("Zone 结果超过 --max-bytes")
+			}
 			if z.ID == "" || z.Name == "" {
 				return nil, errors.New("区域响应缺少身份")
 			}

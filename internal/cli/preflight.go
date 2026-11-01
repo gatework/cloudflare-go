@@ -27,6 +27,23 @@ func (a *app) preflight(cmd *cobra.Command, args []string) error {
 	if format == "bind" && cmd.CommandPath() != "cloudflare-go dns dump" {
 		return usage("BIND 格式仅支持整 Zone dump")
 	}
+	if format == "jsonl" && (cmd.Parent() == nil || cmd.Parent().Name() != "dns" || cmd.Name() != "list" && cmd.Name() != "get" && cmd.Name() != "dump") {
+		return usage("JSONL 仅支持 dns list/get/dump")
+	}
+	if cmd.Flags().Changed("match-tag") {
+		tags, _ := cmd.Flags().GetStringArray("match-tag")
+		for _, tag := range tags {
+			if !utf8.ValidString(tag) || !strings.Contains(tag, ":") || strings.HasPrefix(tag, ":") {
+				return usage("match-tag 需要 name:value 标签")
+			}
+		}
+	}
+	if cmd.Flags().Changed("match-comment") {
+		comment, _ := cmd.Flags().GetString("match-comment")
+		if !utf8.ValidString(comment) {
+			return usage("match-comment 必须是 UTF-8 文本")
+		}
+	}
 	if a.spreadsheet && (a.format != "" || a.output != "") && format != "csv" {
 		return usage("spreadsheet-safe 只用于 CSV")
 	}

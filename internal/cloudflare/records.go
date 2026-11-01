@@ -37,6 +37,15 @@ func (c *Client) ListRecords(ctx context.Context, id string, q dns.Query, maxByt
 		p.Content.Value.Exact.Value = *q.Content
 		p.Content.Value.Exact.Present = true
 	}
+	if q.Comment != nil {
+		p.Comment.Present = true
+		p.Comment.Value.Exact.Value, p.Comment.Value.Exact.Present = *q.Comment, true
+	}
+	if len(q.Tags) > 0 {
+		p.Tag.Present = true
+		p.Tag.Value.Exact.Value, p.Tag.Value.Exact.Present = q.Tags[0], true
+		p.TagMatch.Value, p.TagMatch.Present = sdkdns.RecordListParamsTagMatchAll, true
+	}
 	if q.Domain != "" {
 		p.Name.Present = true
 		if q.Exact {
@@ -51,7 +60,7 @@ func (c *Client) ListRecords(ctx context.Context, id string, q dns.Query, maxByt
 		maxBytes = 256 << 20
 	}
 	var total int64
-	seen := map[string]json.RawMessage{}
+	seen := map[string]recordSnapshot{}
 	records := []dns.Record{}
 	pagination := pageTracker{}
 	for page := 1; ; page++ {
@@ -67,6 +76,9 @@ func (c *Client) ListRecords(ctx context.Context, id string, q dns.Query, maxByt
 		}
 		fresh := 0
 		for _, value := range batch.Result {
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
 			raw := value.JSON.RawJSON()
 			total += int64(len(raw))
 			if total > maxBytes {
@@ -77,14 +89,23 @@ func (c *Client) ListRecords(ctx context.Context, id string, q dns.Query, maxByt
 				return nil, err
 			}
 			if old, ok := seen[record.ID]; ok {
-				if !dns.EqualJSON(old, record.Raw) {
+				equal, err := old.matches(record.Raw)
+				if err != nil {
+					return nil, err
+				}
+				if !equal {
 					return nil, fmt.Errorf("%w：分页期间相同 ID 内容变化", dns.ErrConflict)
 				}
 				continue
 			}
-			seen[record.ID] = record.Raw
+			selected := q.Match(record)
+			state, err := snapshot(record.Raw, selected)
+			if err != nil {
+				return nil, err
+			}
+			seen[record.ID] = state
 			fresh++
-			if q.Match(record) {
+			if selected {
 				records = append(records, record)
 			}
 		}
@@ -112,6 +133,9 @@ func (c *Client) ListRecords(ctx context.Context, id string, q dns.Query, maxByt
 		}
 		return a.ID < b.ID
 	})
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	return records, nil
 }
 func (c *Client) GetRecord(ctx context.Context, zone, id string) (dns.Record, error) {

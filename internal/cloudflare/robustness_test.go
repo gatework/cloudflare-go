@@ -49,7 +49,7 @@ func TestIncompletePaginationFails(t *testing.T) {
 			defer client.Close()
 			var err error
 			if endpoint == "zones" {
-				_, err = client.ListZones(t.Context(), "", "")
+				_, err = client.ListZones(t.Context(), "", "", 1<<20)
 			} else {
 				_, err = client.ListRecords(t.Context(), zoneID, dns.Query{}, 1<<20)
 			}

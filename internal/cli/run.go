@@ -113,7 +113,7 @@ func (a *app) command() *cobra.Command {
 	f.StringVar(&a.tokenFile, "token-file", "", "显式 Token 文件，覆盖所选配置的凭据来源")
 	f.StringVar(&a.zoneName, "zone", "", "Zone 域名，用于简写或消除歧义")
 	f.StringVar(&a.zoneID, "zone-id", "", "明确的 Zone ID")
-	f.StringVar(&a.format, "format", "", "table、txt、csv、json；整 Zone dump 另支持 bind")
+	f.StringVar(&a.format, "format", "", "table、txt、csv、json；DNS 查询另支持 jsonl，整 Zone dump 支持 bind")
 	f.StringVarP(&a.output, "output", "o", "", "输出到文件，默认不覆盖")
 	f.BoolVar(&a.overwrite, "overwrite", false, "允许原子替换已有输出文件")
 	f.BoolVar(&a.spreadsheet, "spreadsheet-safe", false, "CSV 对公式前缀增加单引号，显式改变单元格值")
@@ -196,7 +196,7 @@ func (a *app) context(c *cobra.Command, dump bool) (context.Context, context.Can
 func (a *app) formatFor(dump bool, p config.Profile) string {
 	format := a.format
 	if format == "" && a.output != "" {
-		format = map[string]string{".json": "json", ".csv": "csv", ".txt": "txt", ".zone": "bind"}[strings.ToLower(filepath.Ext(a.output))]
+		format = map[string]string{".json": "json", ".jsonl": "jsonl", ".ndjson": "jsonl", ".csv": "csv", ".txt": "txt", ".zone": "bind"}[strings.ToLower(filepath.Ext(a.output))]
 	}
 	if format == "" {
 		if dump {

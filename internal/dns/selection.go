@@ -30,7 +30,7 @@ func (s *Service) Zone(ctx context.Context, domain, zoneName, zoneID string) (Zo
 				_, name, _ = strings.Cut(name, ".")
 				continue
 			}
-			zones, err := s.API.ListZones(ctx, name, s.AccountID)
+			zones, err := s.API.ListZones(ctx, name, s.AccountID, s.MaxBytes)
 			if err != nil {
 				return zone, err
 			}

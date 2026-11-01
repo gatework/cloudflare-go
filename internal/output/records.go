@@ -30,6 +30,19 @@ func recordValues(value any) ([]dns.Record, dns.Zone, bool) {
 
 func renderRecords(w io.Writer, format string, value any, records []dns.Record, zone dns.Zone, safe bool) error {
 	switch format {
+	case "jsonl":
+		var buffer bytes.Buffer
+		for _, record := range records {
+			buffer.Reset()
+			if err := json.Compact(&buffer, record.Raw); err != nil {
+				return err
+			}
+			buffer.WriteByte('\n')
+			if _, err := w.Write(buffer.Bytes()); err != nil {
+				return err
+			}
+		}
+		return nil
 	case "json":
 		return recordsJSON(w, value, records)
 	case "table":

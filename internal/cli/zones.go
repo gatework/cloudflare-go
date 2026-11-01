@@ -22,7 +22,7 @@ func (a *app) addZones(root *cobra.Command) {
 			return err
 		}
 		defer cancel()
-		zones, err := api.ListZones(ctx, "", p.AccountID)
+		zones, err := api.ListZones(ctx, "", p.AccountID, a.maxBytes)
 		if err != nil {
 			return err
 		}

@@ -24,6 +24,8 @@ func normalizeName(value, zone string, record bool) (string, error) {
 }
 
 type recordFlags struct {
+	matchTags                                                                                             []string
+	matchComment                                                                                          string
 	types                                                                                                 []string
 	exact, yes, dryRun, proxied, clearTags                                                                bool
 	id, content, contentFile, matchContent, ttl, comment, file, newName, target, params, caaTag, caaValue string
@@ -37,6 +39,10 @@ func (a *app) addDNS(root *cobra.Command) {
 		flags := &recordFlags{}
 		command := &cobra.Command{Use: action + " [DOMAIN]", Args: cobra.MaximumNArgs(1), RunE: func(cmd *cobra.Command, args []string) error { return a.records(cmd, args, action, flags) }}
 		f := command.Flags()
+		if action == "list" || action == "get" || action == "dump" {
+			f.StringArrayVar(&flags.matchTags, "match-tag", nil, "完整标签精确匹配，可重复，多个标签按 AND")
+			f.StringVar(&flags.matchComment, "match-comment", "", "按注释精确筛选，区分大小写")
+		}
 		f.StringSliceVar(&flags.types, "type", nil, "记录类型，可重复；写入时只允许一种")
 		f.BoolVar(&flags.proxied, "proxied", false, "筛选代理状态；创建或修改时设置代理状态")
 		if action == "list" || action == "dump" {
@@ -172,7 +178,10 @@ func (a *app) records(cmd *cobra.Command, args []string, action string, f *recor
 	} else if domain != "" && !dns.Within(domain, zone.Name) {
 		return usage("记录名称不属于所选 Zone")
 	}
-	query := dns.Query{Domain: domain, Exact: f.exact, Types: f.types}
+	query := dns.Query{Domain: domain, Exact: f.exact, Types: f.types, Tags: f.matchTags}
+	if cmd.Flags().Changed("match-comment") {
+		query.Comment = &f.matchComment
+	}
 	if cmd.Flags().Changed("proxied") && action != "create" && action != "update" {
 		query.Proxied = &f.proxied
 	}
@@ -181,7 +190,7 @@ func (a *app) records(cmd *cobra.Command, args []string, action string, f *recor
 	}
 	if action == "list" || action == "dump" {
 		if format == "bind" {
-			if domain != zone.Name || f.exact || len(f.types) > 0 || query.Proxied != nil || query.Content != nil {
+			if domain != zone.Name || f.exact || len(f.types) > 0 || query.Proxied != nil || query.Content != nil || len(query.Tags) > 0 || query.Comment != nil {
 				return usage("BIND 只能导出整个 Zone，不能附加记录筛选")
 			}
 			text, err := api.ExportZone(ctx, zone.ID)

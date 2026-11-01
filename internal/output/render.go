@@ -17,7 +17,7 @@ import (
 
 func Valid(format string) bool {
 	switch format {
-	case "table", "txt", "csv", "json", "bind":
+	case "table", "txt", "csv", "json", "jsonl", "bind":
 		return true
 	}
 	return false

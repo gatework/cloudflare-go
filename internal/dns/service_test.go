@@ -15,7 +15,7 @@ type fakeAPI struct {
 	last     RecordPatch
 }
 
-func (f *fakeAPI) ListZones(_ context.Context, name, account string) ([]Zone, error) {
+func (f *fakeAPI) ListZones(_ context.Context, name, account string, _ int64) ([]Zone, error) {
 	out := []Zone{}
 	for _, z := range f.zones {
 		if (name == "" || z.Name == name) && (account == "" || z.AccountID == account) {

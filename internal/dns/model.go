@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"strings"
 	"time"
 )
@@ -54,6 +55,8 @@ type Query struct {
 	Types   []string `json:"types,omitempty"`
 	Proxied *bool    `json:"proxied,omitempty"`
 	Content *string  `json:"content,omitempty"`
+	Tags    []string `json:"tags,omitempty"`
+	Comment *string  `json:"comment,omitempty"`
 }
 
 func (q Query) Match(r Record) bool {
@@ -72,7 +75,27 @@ func (q Query) Match(r Record) bool {
 			return false
 		}
 	}
-	return (q.Proxied == nil || r.Proxied == *q.Proxied) && (q.Content == nil || r.Content == *q.Content)
+	if q.Proxied != nil && r.Proxied != *q.Proxied || q.Content != nil && r.Content != *q.Content {
+		return false
+	}
+	if len(q.Tags) > 0 || q.Comment != nil {
+		var fields struct {
+			Tags    []string `json:"tags"`
+			Comment *string  `json:"comment"`
+		}
+		if json.Unmarshal(r.Raw, &fields) != nil {
+			return false
+		}
+		if q.Comment != nil && (fields.Comment == nil || *fields.Comment != *q.Comment) {
+			return false
+		}
+		for _, tag := range q.Tags {
+			if !slices.Contains(fields.Tags, tag) {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 type Selector struct {
@@ -96,7 +119,7 @@ type Change struct {
 type RecordPatch map[string]json.RawMessage
 
 type API interface {
-	ListZones(context.Context, string, string) ([]Zone, error)
+	ListZones(context.Context, string, string, int64) ([]Zone, error)
 	GetZone(context.Context, string) (Zone, error)
 	ListRecords(context.Context, string, Query, int64) ([]Record, error)
 	GetRecord(context.Context, string, string) (Record, error)
