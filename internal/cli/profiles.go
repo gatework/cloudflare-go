@@ -88,7 +88,7 @@ func (a *app) addProfiles(root *cobra.Command) {
 					}
 				}
 			}
-			_, err = fmt.Fprintln(a.out, "配置有效；凭据权限与远端访问需通过 zone list 验证。")
+			_, err = fmt.Fprintln(a.out, "配置有效；远端读取权限可通过 profile check 验证。")
 			return err
 		}})
 	}

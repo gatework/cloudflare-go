@@ -130,8 +130,8 @@ func (a *app) command() *cobra.Command {
 	f.StringVarP(&a.output, "output", "o", "", "输出到文件，默认不覆盖")
 	f.BoolVar(&a.overwrite, "overwrite", false, "允许原子替换已有输出文件")
 	f.BoolVar(&a.spreadsheet, "spreadsheet-safe", false, "CSV 对公式前缀增加单引号，显式改变单元格值")
-	f.DurationVar(&a.timeout, "timeout", 0, "远端操作总预算，默认 2m，dump 为 10m")
-	f.Int64Var(&a.maxBytes, "max-bytes", 256<<20, "记录收集字节上限，超过时失败，不截断")
+	f.DurationVar(&a.timeout, "timeout", 0, "操作总预算（含编码与发布检查），默认 2m，dump 为 10m")
+	f.Int64Var(&a.maxBytes, "max-bytes", 256<<20, "原始数据收集字节上限（含 Zone/BIND），超过时失败，不截断")
 	root.AddCommand(&cobra.Command{Use: "version", Args: cobra.NoArgs, RunE: func(*cobra.Command, []string) error {
 		_, err := fmt.Fprintf(a.out, "cloudflare-go %s (%s), cloudflare/cloudflare-go v7.13.1\n", Version, Commit)
 		return err
