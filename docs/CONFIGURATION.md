@@ -32,8 +32,8 @@ profile 选择：`--profile` → `CLOUDFLARE_PROFILE` → `default_profile`。�
 | 参数 | 默认与行为 |
 |---|---|
 | `--zone`、`--zone-id` | 不指定时由输入域名向父域查询最长匹配 Zone；两个同时指定时必须一致 |
-| `--timeout` | 2m，dump 为 10m；包括远端查询与重试，包含编码与发布检查；删除人工确认、交互选择 Zone 后重建执行预算 |
-| `--max-bytes` | 268435456（256 MiB），收集记录原始 JSON 的累计上限；超过即失败 |
+| `--timeout` | 2m，dump 为 10m；包括远端查询与重试，包含编码与发布检查；删除人工确认、交互选择 Zone 后重新计时 |
+| `--max-bytes` | 268435456（256 MiB），本次命令所有 API 响应正文的累计上限，含 Zone 查询、分页、错误响应、重试和 BIND；确认或选择 Zone 不重置额度 |
 | `--format` | table/txt/csv/json；dns list/get/dump 另支持 jsonl，整 Zone dump 支持 bind |
 | `--output/-o` | 原子输出文件，0600，不覆盖旧文件 |
 | `--overwrite` | 明确允许替换普通输出文件，不接受符号链接或特殊文件 |
@@ -53,11 +53,15 @@ JSON 结果：list 为数组，get/create/update 为单条 API 记录，delete �
 
 CSV 固定列：zone_id、zone_name、id、type、name、content、ttl、proxied、proxiable、priority、comment、tags、data、settings、meta、private_routing、created_on、modified_on、comment_modified_on、tags_modified_on、record_json。嵌套值为 JSON 单元格，record_json 保留未知字段。默认 CSV 不添加 BOM。
 
-每次响应限制 16 MiB、每页请求 100 条；显式分页持续传递原 context，验证分页前进，不固定截断页数。GET 最多重试两次；POST/PATCH/DELETE 不自动重试。单次 HTTP 请求 30 秒，不接受 HTTP 重定向。
+响应正文在读取时消耗共享字节额度，按 HTTP 自动解压后的正文计数，包括 JSON 包裹字段。每次响应另有限制 16 MiB，每页请求 100 条；显式分页持续传递原 context，验证分页前进，不固定截断页数。GET 最多重试两次；POST/PATCH/DELETE 不自动重试。单次 HTTP 请求 30 秒，不接受 HTTP 重定向。
+
+`--max-bytes` 不限制进程 RSS；它与超时是独立限制。旧版按各次列表收集的记录 JSON 计数，本版改为整条命令共享响应正文额度；相同值可能更早耗尽。达到额度后不再发送新请求，超限读取会中止命令并保留已有输出文件；已发出的写入若无法只读核对，仍返回结果不确定。
 
 提前出现的空页、页码异常、同 ID 数据变化、响应对象类型错误以及详情/修改/删除返回错误 ID 都会报错。单类型、代理状态与内容条件会同时交给 API 筛选，并继续在本地检查大小写精确内容和 DNS 标签边界；多个类型仍按本地 OR 筛选。
 
 HTTP 错误只有具备有效 Cloudflare 错误结构时才能被识别为明确拒绝。删除核对只接受 HTTP 404 加 Cloudflare 错误码 81044（记录不存在）；代理 HTML、未知路由和其他 404 不能证明记录已删除，继续返回结果不确定。
+
+退出码 1 表示普通运行失败，也包括能证明写请求未发送的 DNS/拨号/TLS 失败；用户在未发送前取消返回 130。发送证据只信任标准 `net/http.Transport`：取得连接后发生的错误、无可靠跟踪的自定义传输错误仍按可能发送处理。写入结果未知优先返回 5，响应额度耗尽本身返回 1，不视为用户取消。
 
 ## 初始化、查询与补全
 

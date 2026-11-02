@@ -37,6 +37,20 @@ jobs:
       - run: go test -race -timeout 5m ./...
       - run: go vet ./...
       - run: go run honnef.co/go/tools/cmd/staticcheck@v0.8.2 ./...
+      - name: Paired collection acceptance
+        env:
+          COLLECTION_BASELINE: f933a60966cd74a8c3404489767ab7b79bac81e6
+        run: |
+          git fetch --depth=1 origin "$COLLECTION_BASELINE"
+          git worktree add --detach "$RUNNER_TEMP/collection-baseline" "$COLLECTION_BASELINE"
+          python3 scripts/compare_collection.py --baseline "$RUNNER_TEMP/collection-baseline" --candidate "$GITHUB_WORKSPACE" --output "$RUNNER_TEMP/collection-comparison"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: collection-comparison
+          path: ${{ runner.temp }}/collection-comparison
+          if-no-files-found: ignore
+          retention-days: 14
       - name: Record and HTTP validation benchmarks
         run: go test ./internal/output ./internal/cloudflare -run '^$' -bench 'BenchmarkDump|BenchmarkResponseValidation|BenchmarkCollection' -benchmem -benchtime=200ms -count=3 | tee benchmark.txt
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
