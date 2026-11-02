@@ -32,6 +32,16 @@ func DecodePatch(data []byte) (RecordPatch, error) {
 	return RecordPatch(object), nil
 }
 func ValidatePatch(p RecordPatch, create bool, zone, existingType string) error {
+	return validatePatch(p, create, zone, existingType, true)
+}
+
+// ValidatePatchInput checks locally known fields before credentials or API calls.
+// Name expansion/ownership and constraints requiring an inferred type are deferred.
+func ValidatePatchInput(p RecordPatch, create bool, existingType string) error {
+	return validatePatch(p, create, "", existingType, false)
+}
+
+func validatePatch(p RecordPatch, create bool, zone, existingType string, resolveName bool) error {
 	if len(p) == 0 {
 		return errors.New("没有需要修改的字段")
 	}
@@ -66,19 +76,31 @@ func ValidatePatch(p RecordPatch, create bool, zone, existingType string) error 
 	if create && typ == "" {
 		return errors.New("创建记录需要 --type")
 	}
+	if !create && typ == "MX" {
+		var fields map[string]json.RawMessage
+		if json.Unmarshal(p["data"], &fields) == nil && len(fields) == 1 && fields["priority"] != nil {
+			p["priority"] = fields["priority"]
+			delete(p, "data")
+		}
+	}
 	if _, ok := p["name"]; ok {
 		value, err := getString("name")
 		if err != nil {
 			return err
 		}
-		name, err := Name(value, zone, true)
-		if err != nil {
-			return err
+		if value == "" {
+			return errors.New("name 不能为空")
 		}
-		if !Within(name, zone) {
-			return errors.New("记录名称不属于所选 Zone")
+		if resolveName {
+			name, err := Name(value, zone, true)
+			if err != nil {
+				return err
+			}
+			if !Within(name, zone) {
+				return errors.New("记录名称不属于所选 Zone")
+			}
+			p["name"] = json.RawMessage(quote(name))
 		}
-		p["name"] = json.RawMessage(quote(name))
 	}
 	if raw, ok := p["content"]; ok {
 		var content string
@@ -104,7 +126,7 @@ func ValidatePatch(p RecordPatch, create bool, zone, existingType string) error 
 	}
 	for _, key := range []string{"ttl", "priority"} {
 		if raw, ok := p[key]; ok {
-			if key == "priority" && typ != "MX" && typ != "URI" {
+			if key == "priority" && typ != "" && typ != "MX" && typ != "URI" {
 				return errors.New("顶层 priority 仅用于 MX/URI，其他类型使用 data.priority")
 			}
 			n, err := strconv.ParseInt(string(raw), 10, 64)
@@ -119,7 +141,7 @@ func ValidatePatch(p RecordPatch, create bool, zone, existingType string) error 
 			if json.Unmarshal(raw, &b) != nil {
 				return fmt.Errorf("%s 需要布尔值", key)
 			}
-			if key == "proxied" && b && typ != "A" && typ != "AAAA" && typ != "CNAME" {
+			if key == "proxied" && b && typ != "" && typ != "A" && typ != "AAAA" && typ != "CNAME" {
 				return errors.New("此记录类型不支持代理")
 			}
 		}

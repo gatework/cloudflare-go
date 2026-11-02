@@ -57,7 +57,7 @@ func BenchmarkCollection(b *testing.B) {
 			}
 			b.ReportAllocs()
 			for b.Loop() {
-				records, err := c.ListRecords(b.Context(), zoneID, q, 32<<20)
+				records, err := c.ListRecords(b.Context(), zoneID, q)
 				if err != nil {
 					b.Fatal(err)
 				}
@@ -81,7 +81,7 @@ func TestCollectionRetainedHeap(t *testing.T) {
 	defer c.Close()
 	runtime.GC()
 	runtime.ReadMemStats(&baseline)
-	records, err := c.ListRecords(t.Context(), zoneID, dns.Query{Types: []string{"A", "AAAA"}}, 32<<20)
+	records, err := c.ListRecords(t.Context(), zoneID, dns.Query{Types: []string{"A", "AAAA"}})
 	if err != nil || len(records) != 100 {
 		t.Fatal(len(records), err)
 	}

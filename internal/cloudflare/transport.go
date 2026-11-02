@@ -3,12 +3,15 @@ package cloudflare
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"io"
 	"mime"
 	"net/http"
+	"net/http/httptrace"
 	"strings"
+	"sync/atomic"
 	"unicode/utf8"
 )
 
@@ -19,6 +22,8 @@ type metadata struct {
 	requestID string
 	info      pageInfo
 	apiError  bool
+	attempted bool
+	notSent   bool
 }
 type transport struct{ base http.RoundTripper }
 
@@ -44,21 +49,77 @@ func (t transport) CloseIdleConnections() {
 func (t transport) RoundTrip(request *http.Request) (*http.Response, error) {
 	m, _ := request.Context().Value(metadataKey{}).(*metadata)
 	if m != nil {
-		*m = metadata{}
+		*m = metadata{attempted: true}
+	}
+	budget, _ := request.Context().Value(budgetKey{}).(*responseBudget)
+	if budget != nil && !budget.available() {
+		if m != nil {
+			m.notSent = true
+		}
+		budget.cancel(ErrResponseBudget)
+		return nil, ErrResponseBudget
+	}
+	if err := request.Context().Err(); err != nil {
+		if m != nil {
+			m.notSent = true
+		}
+		return nil, err
+	}
+	// Require the standard connection path, not merely a missing GotConn event:
+	// registered protocols may bypass it, and custom TLS dialers can omit traces.
+	base, standard := t.base.(*http.Transport)
+	//lint:ignore SA1019 The legacy TLS hook can bypass traces too; inspect it without invoking it.
+	traceable := standard && base.DialTLS == nil && base.DialTLSContext == nil
+	var acquiring, connected atomic.Bool
+	if traceable {
+		trace := &httptrace.ClientTrace{
+			GetConn: func(string) { acquiring.Store(true) },
+			GotConn: func(httptrace.GotConnInfo) { connected.Store(true) },
+			TLSHandshakeDone: func(_ tls.ConnectionState, err error) {
+				// A negotiated alternate protocol need not emit GotConn.
+				if err == nil {
+					connected.Store(true)
+				}
+			},
+		}
+		request = request.WithContext(httptrace.WithClientTrace(request.Context(), trace))
 	}
 	response, err := t.base.RoundTrip(request)
 	if err != nil {
+		if m != nil {
+			m.notSent = traceable && acquiring.Load() && !connected.Load() && response == nil
+		}
+		if response != nil && response.Body != nil {
+			_ = response.Body.Close()
+		}
 		return nil, err
 	}
-	data, err := io.ReadAll(io.LimitReader(response.Body, (16<<20)+1))
+	if response == nil || response.Body == nil {
+		return nil, protocolError(m)
+	}
+	if m != nil {
+		m.status = response.StatusCode
+		m.requestID = response.Header.Get("Cf-Ray")
+	}
+	var reader io.Reader = response.Body
+	if budget != nil {
+		reader = budgetReader{reader, budget}
+	}
+	data, err := io.ReadAll(io.LimitReader(reader, (16<<20)+1))
 	_ = response.Body.Close()
 	if err != nil {
+		if errors.Is(err, ErrResponseBudget) {
+			return nil, err
+		}
 		return nil, errors.New("读取 Cloudflare 响应失败")
 	}
 	if len(data) > 16<<20 {
 		return nil, errors.New("单次 Cloudflare 响应超过 16 MiB")
 	}
 	response.Body = io.NopCloser(bytes.NewReader(data))
+	if !utf8.Valid(data) {
+		return nil, protocolError(m)
+	}
 	var envelope struct {
 		Success *bool       `json:"success"`
 		Result  resultShape `json:"result"`
@@ -69,9 +130,6 @@ func (t transport) RoundTrip(request *http.Request) (*http.Response, error) {
 	}
 	decodeErr := json.Unmarshal(data, &envelope)
 	if m != nil {
-		m.status = response.StatusCode
-		m.requestID = response.Header.Get("Cf-Ray")
-		m.codes = nil
 		m.info = envelope.Info
 		for _, e := range envelope.Errors {
 			m.codes = append(m.codes, e.Code)
@@ -85,7 +143,7 @@ func (t transport) RoundTrip(request *http.Request) (*http.Response, error) {
 		media, _, err := mime.ParseMediaType(response.Header.Get("Content-Type"))
 		trimmed := bytes.TrimSpace(data)
 		// This is an opaque BIND document, not a JSON envelope or proxy page.
-		if err != nil || media != "text/plain" || response.StatusCode != http.StatusOK || len(trimmed) == 0 || !utf8.Valid(data) || bytes.IndexByte(data, 0) >= 0 || trimmed[0] == '<' || json.Valid(trimmed) {
+		if err != nil || media != "text/plain" || response.StatusCode != http.StatusOK || len(trimmed) == 0 || bytes.IndexByte(data, 0) >= 0 || trimmed[0] == '<' || json.Valid(trimmed) {
 			return nil, protocolError(m)
 		}
 		return response, nil
@@ -113,16 +171,20 @@ func protocolError(m *metadata) error {
 	return &Error{Status: m.status, Codes: m.codes, RequestID: m.requestID, Kind: "protocol"}
 }
 
-func callContext(ctx context.Context) (context.Context, *metadata) {
+func callContext(ctx context.Context) (context.Context, *metadata, context.CancelFunc) {
+	stop := func() {}
+	if ctx.Value(budgetKey{}) == nil {
+		ctx, stop = WithResponseBudget(ctx, DefaultMaxBytes)
+	}
 	m := &metadata{}
-	return context.WithValue(ctx, metadataKey{}, m), m
+	return context.WithValue(ctx, metadataKey{}, m), m, stop
 }
 func failure(ctx context.Context, m *metadata, err error) error {
 	if err == nil {
 		return nil
 	}
-	if ctx.Err() != nil {
-		return ctx.Err()
+	if errors.Is(context.Cause(ctx), ErrResponseBudget) {
+		return &Error{Status: m.status, Codes: m.codes, RequestID: m.requestID, Kind: "budget", notSent: !m.attempted || m.notSent, cause: ErrResponseBudget}
 	}
 	var own *Error
 	if errors.As(err, &own) {
@@ -132,5 +194,9 @@ func failure(ctx context.Context, m *metadata, err error) error {
 	if m.apiError {
 		kind = "api"
 	}
-	return &Error{Status: m.status, Codes: m.codes, RequestID: m.requestID, Kind: kind}
+	classified := &Error{Status: m.status, Codes: m.codes, RequestID: m.requestID, Kind: kind, notSent: !m.attempted || m.notSent, cause: ctx.Err()}
+	if ctx.Err() != nil && !classified.Definitive() {
+		return ctx.Err()
+	}
+	return classified
 }

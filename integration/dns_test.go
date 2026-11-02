@@ -42,7 +42,7 @@ func TestLiveDNS(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	records, err := client.ListRecords(ctx, zoneID, dns.Query{Domain: zone.Name}, 256<<20)
+	records, err := client.ListRecords(ctx, zoneID, dns.Query{Domain: zone.Name})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,7 +61,7 @@ func TestLiveDNS(t *testing.T) {
 	}
 	nonce := hex.EncodeToString(random)
 	name := "_cloudflare-go-test-" + nonce + "." + zone.Name
-	if existing, err := client.ListRecords(ctx, zoneID, dns.Query{Domain: name, Exact: true}, 1<<20); err != nil || len(existing) != 0 {
+	if existing, err := client.ListRecords(ctx, zoneID, dns.Query{Domain: name, Exact: true}); err != nil || len(existing) != 0 {
 		t.Fatal("test name is not available")
 	}
 	patch := dns.RecordPatch{"type": json.RawMessage(`"TXT"`), "name": raw(name), "content": raw("cloudflare-go integration " + nonce), "ttl": json.RawMessage(`1`)}

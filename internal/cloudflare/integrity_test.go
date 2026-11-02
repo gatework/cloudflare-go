@@ -76,7 +76,7 @@ func TestPaginationChecksStatistics(t *testing.T) {
 			})
 			c := New("fixture", "", base)
 			defer c.Close()
-			_, err := c.ListRecords(t.Context(), zoneID, dns.Query{}, 1<<20)
+			_, err := c.ListRecords(t.Context(), zoneID, dns.Query{})
 			if (err == nil) != tc.valid {
 				t.Fatalf("valid=%v: %v", tc.valid, err)
 			}

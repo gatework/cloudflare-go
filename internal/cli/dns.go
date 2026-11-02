@@ -8,7 +8,6 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/gatework/cloudflare-go/internal/config"
 	"github.com/gatework/cloudflare-go/internal/dns"
 	"github.com/gatework/cloudflare-go/internal/fileio"
 	"github.com/gatework/cloudflare-go/internal/output"
@@ -24,6 +23,7 @@ func normalizeName(value, zone string, record bool) (string, error) {
 }
 
 type recordFlags struct {
+	patch        dns.RecordPatch
 	types        []string
 	exact        bool
 	id           string
@@ -58,6 +58,7 @@ func (a *app) addDNS(root *cobra.Command) {
 	for _, action := range []string{"list", "get", "create", "update", "delete", "dump"} {
 		flags := &recordFlags{}
 		command := &cobra.Command{Use: action + " [DOMAIN]", Args: cobra.MaximumNArgs(1), RunE: func(cmd *cobra.Command, args []string) error { return a.records(cmd, args, action, flags) }}
+		command.PreRunE = func(cmd *cobra.Command, _ []string) error { return prepareRecordInput(cmd, flags, action) }
 		f := command.Flags()
 		if action == "list" || action == "get" || action == "dump" {
 			f.StringArrayVar(&flags.matchTags, "match-tag", nil, "完整标签精确匹配，可重复，多个标签按 AND")
@@ -105,15 +106,9 @@ func (a *app) addDNS(root *cobra.Command) {
 	root.AddCommand(group)
 }
 func (a *app) records(cmd *cobra.Command, args []string, action string, f *recordFlags) error {
-	if err := a.validateOutput(); err != nil {
-		return err
-	}
 	format := a.format
 	if format == "" && strings.ToLower(filepath.Ext(a.output)) == ".zone" {
 		format = "bind"
-	}
-	if format == "bind" && action != "dump" {
-		return usage("BIND 格式仅支持整 Zone dump")
 	}
 
 	api, close, p, err := a.connect()
@@ -134,27 +129,6 @@ func (a *app) records(cmd *cobra.Command, args []string, action string, f *recor
 			return err
 		}
 	}
-	if a.zoneID != "" && !config.ValidID(a.zoneID) {
-		return usage("zone-id 应为 32 位十六进制 ID")
-	}
-	if f.id != "" && !config.ValidID(f.id) {
-		return usage("id 应为 32 位十六进制 ID")
-	}
-	if cmd.Flags().Changed("id") && f.id == "" {
-		return usage("id 不能为空")
-	}
-	if cmd.Flags().Changed("type") && len(f.types) == 0 {
-		return usage("type 不能为空")
-	}
-	for i, typ := range f.types {
-		f.types[i], err = dns.Type(typ)
-		if err != nil {
-			return &usageError{err}
-		}
-	}
-	if action == "create" && len(f.types) > 1 || action == "update" && len(f.types) > 1 {
-		return usage("单条写入只允许一个 --type")
-	}
 	domain := ""
 	if len(args) > 0 {
 		domain = args[0]
@@ -167,7 +141,7 @@ func (a *app) records(cmd *cobra.Command, args []string, action string, f *recor
 		return err
 	}
 	defer cancel()
-	service := dns.Service{API: api, AccountID: p.AccountID, MaxBytes: a.maxBytes}
+	service := dns.Service{API: api, AccountID: p.AccountID}
 	// An explicit Zone ID can resolve apex/relative names without guessing.
 	var zone dns.Zone
 	if a.zoneID != "" {
@@ -217,12 +191,9 @@ func (a *app) records(cmd *cobra.Command, args []string, action string, f *recor
 			if err != nil {
 				return err
 			}
-			if int64(len(text)) > a.maxBytes {
-				return fmt.Errorf("BIND 结果超过 --max-bytes")
-			}
 			return a.render(ctx, text, true, p)
 		}
-		records, err := api.ListRecords(ctx, zone.ID, query, a.maxBytes)
+		records, err := api.ListRecords(ctx, zone.ID, query)
 		if err != nil {
 			return err
 		}
@@ -243,13 +214,7 @@ func (a *app) records(cmd *cobra.Command, args []string, action string, f *recor
 	if action == "create" && domain == "" {
 		return usage("创建记录需要名称")
 	}
-	patch := dns.RecordPatch{}
-	if action != "delete" {
-		patch, err = buildPatch(cmd, f, action, zone.Name)
-		if err != nil {
-			return &usageError{err}
-		}
-	}
+	patch := f.patch
 	if action == "create" {
 		if given, ok := patch["name"]; ok {
 			var name string
@@ -321,9 +286,49 @@ func (a *app) records(cmd *cobra.Command, args []string, action string, f *recor
 	}
 	return nil
 }
-func buildPatch(cmd *cobra.Command, f *recordFlags, action, zone string) (dns.RecordPatch, error) {
+func prepareRecordInput(cmd *cobra.Command, f *recordFlags, action string) error {
+	if cmd.Flags().Changed("type") && len(f.types) == 0 {
+		return usage("type 不能为空")
+	}
+	if (action == "create" || action == "update") && len(f.types) > 1 {
+		return usage("单条写入只允许一种 type")
+	}
+	for i, typ := range f.types {
+		value, err := dns.Type(typ)
+		if err != nil {
+			return &usageError{err}
+		}
+		f.types[i] = value
+	}
+	if action != "create" && action != "update" {
+		return nil
+	}
+	patch, err := buildPatch(cmd, f, action)
+	if err != nil {
+		return &usageError{err}
+	}
+	typ := ""
+	if len(f.types) == 1 {
+		typ = f.types[0]
+	}
+	if err := dns.ValidatePatchInput(patch, action == "create", typ); err != nil {
+		return &usageError{err}
+	}
+	if value, ok := patch["type"]; ok {
+		_ = json.Unmarshal(value, &typ)
+	}
+	if typ != "" {
+		if err := validateRecordFlags(cmd, typ); err != nil {
+			return err
+		}
+	}
+	f.patch = patch
+	return nil
+}
+
+func buildPatch(cmd *cobra.Command, f *recordFlags, action string) (dns.RecordPatch, error) {
 	changed := cmd.Flags().Changed
-	for _, value := range append([]string{f.content, f.comment, f.target, f.params, f.caaTag, f.caaValue}, f.tags...) {
+	for _, value := range append([]string{f.content, f.comment, f.target, f.params, f.caaTag, f.caaValue, f.newName}, f.tags...) {
 		if !utf8.ValidString(value) {
 			return nil, fmt.Errorf("记录参数必须是 UTF-8 文本，未替换非法字节")
 		}
@@ -402,11 +407,7 @@ func buildPatch(cmd *cobra.Command, f *recordFlags, action, zone string) (dns.Re
 		patch["tags"] = raw([]string{})
 	}
 	if changed("new-name") {
-		name, err := normalizeName(f.newName, zone, true)
-		if err != nil {
-			return nil, err
-		}
-		patch["name"] = raw(name)
+		patch["name"] = raw(f.newName)
 	}
 	data := map[string]any{}
 	for key, value := range map[string]any{"target": f.target, "weight": f.weight, "port": f.port} {

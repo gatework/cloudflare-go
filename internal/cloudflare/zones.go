@@ -12,8 +12,9 @@ import (
 	"github.com/gatework/cloudflare-go/internal/dns"
 )
 
-func (c *Client) ListZones(ctx context.Context, name, account string, maxBytes int64) ([]dns.Zone, error) {
-	ctx, m := callContext(ctx)
+func (c *Client) ListZones(ctx context.Context, name, account string) ([]dns.Zone, error) {
+	ctx, m, stop := callContext(ctx)
+	defer stop()
 	p := zones.ZoneListParams{}
 	if name != "" {
 		p.Name.Value = name
@@ -26,17 +27,16 @@ func (c *Client) ListZones(ctx context.Context, name, account string, maxBytes i
 		p.Account.Value.ID.Present = true
 		p.Account.Present = true
 	}
-	if maxBytes <= 0 {
-		maxBytes = 256 << 20
-	}
-	var total int64
 	out := []dns.Zone{}
 	seen := map[string]dns.Zone{}
 	pagination := pageTracker{}
 	for page := 1; ; page++ {
 		p.Page.Value = float64(page)
 		p.Page.Present = true
-		batch, err := c.zones.List(ctx, p, option.WithMaxRetries(2))
+		var batch struct {
+			Result []zoneResponse `json:"result"`
+		}
+		_, err := c.zones.List(ctx, p, option.WithMaxRetries(2), option.WithResponseBodyInto(&batch))
 		if err != nil {
 			return nil, failure(ctx, m, err)
 		}
@@ -49,14 +49,10 @@ func (c *Client) ListZones(ctx context.Context, name, account string, maxBytes i
 			if err := ctx.Err(); err != nil {
 				return nil, err
 			}
-			total += int64(len(z.JSON.RawJSON()))
-			if total > maxBytes {
-				return nil, errors.New("区域结果超过 --max-bytes")
-			}
 			if z.ID == "" || z.Name == "" {
 				return nil, errors.New("区域响应缺少身份")
 			}
-			zone := dns.Zone{ID: z.ID, Name: z.Name, AccountID: z.Account.ID, Status: string(z.Status)}
+			zone := dns.Zone{ID: z.ID, Name: z.Name, AccountID: z.Account.ID, Status: z.Status}
 			if old, ok := seen[z.ID]; ok {
 				if old != zone {
 					return nil, fmt.Errorf("%w：分页期间相同 Zone ID 内容变化", dns.ErrConflict)
@@ -89,16 +85,30 @@ func (c *Client) ListZones(ctx context.Context, name, account string, maxBytes i
 	return out, nil
 }
 func (c *Client) GetZone(ctx context.Context, id string) (dns.Zone, error) {
-	ctx, m := callContext(ctx)
+	ctx, m, stop := callContext(ctx)
+	defer stop()
 	p := zones.ZoneGetParams{}
 	p.ZoneID.Value = id
 	p.ZoneID.Present = true
-	z, err := c.zones.Get(ctx, p, option.WithMaxRetries(2))
+	var result struct {
+		Result zoneResponse `json:"result"`
+	}
+	_, err := c.zones.Get(ctx, p, option.WithMaxRetries(2), option.WithResponseBodyInto(&result))
 	if err != nil {
 		return dns.Zone{}, failure(ctx, m, err)
 	}
-	if z == nil || !strings.EqualFold(z.ID, id) || z.Name == "" {
+	z := result.Result
+	if !strings.EqualFold(z.ID, id) || z.Name == "" {
 		return dns.Zone{}, protocolError(m)
 	}
-	return dns.Zone{ID: z.ID, Name: z.Name, AccountID: z.Account.ID, Status: string(z.Status)}, nil
+	return dns.Zone{ID: z.ID, Name: z.Name, AccountID: z.Account.ID, Status: z.Status}, nil
+}
+
+type zoneResponse struct {
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+	Status  string `json:"status"`
+	Account struct {
+		ID string `json:"id"`
+	} `json:"account"`
 }

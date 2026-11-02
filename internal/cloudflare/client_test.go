@@ -92,11 +92,13 @@ func TestPaginationBoundaryAndDedup(t *testing.T) {
 	defer server.Close()
 	client := New("token", server.URL+"/", server.Client().Transport)
 	defer client.Close()
-	records, err := client.ListRecords(context.Background(), zoneID, dns.Query{Domain: "example.com"}, 1<<20)
+	records, err := client.ListRecords(context.Background(), zoneID, dns.Query{Domain: "example.com"})
 	if err != nil || len(records) != 2 || calls.Load() != 2 {
 		t.Fatal(len(records), calls.Load(), err)
 	}
-	if _, err = client.ListRecords(context.Background(), zoneID, dns.Query{}, 10); err == nil {
+	limited, stop := WithResponseBudget(t.Context(), 10)
+	defer stop()
+	if _, err = client.ListRecords(limited, zoneID, dns.Query{}); err == nil {
 		t.Fatal("size limit ignored")
 	}
 }
@@ -161,7 +163,7 @@ func TestPaginationPastOneHundredPagesAndUnknownTypes(t *testing.T) {
 	defer server.Close()
 	client := New("token", server.URL+"/", server.Client().Transport)
 	defer client.Close()
-	records, err := client.ListRecords(context.Background(), zoneID, dns.Query{Domain: "example.com"}, 1<<20)
+	records, err := client.ListRecords(context.Background(), zoneID, dns.Query{Domain: "example.com"})
 	if err != nil || len(records) != 101 || calls.Load() != 101 {
 		t.Fatal(len(records), calls.Load(), err)
 	}
@@ -187,7 +189,7 @@ func TestSecondPageUsesOriginalCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	done := make(chan error, 1)
-	go func() { _, err := client.ListRecords(ctx, zoneID, dns.Query{}, 1<<20); done <- err }()
+	go func() { _, err := client.ListRecords(ctx, zoneID, dns.Query{}); done <- err }()
 	<-second
 	cancel()
 	if err := <-done; !errors.Is(err, context.Canceled) {

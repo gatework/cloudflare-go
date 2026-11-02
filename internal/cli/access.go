@@ -23,7 +23,7 @@ func (a *app) guideProfile(cmd *cobra.Command, p *config.Profile, explicit bool)
 		return err
 	}
 	defer cancel()
-	zones, err := api.ListZones(ctx, "", p.AccountID, a.maxBytes)
+	zones, err := api.ListZones(ctx, "", p.AccountID)
 	if err != nil {
 		return err
 	}
@@ -151,7 +151,7 @@ func (a *app) profileCheckCommand() *cobra.Command {
 		finish := func(checkErr error) error {
 			return errors.Join(checkErr, a.render(ctx, steps, false, p))
 		}
-		zones, err := api.ListZones(ctx, "", p.AccountID, a.maxBytes)
+		zones, err := api.ListZones(ctx, "", p.AccountID)
 		if err != nil {
 			steps = append(steps, accessCheck{"zones", "failed", err.Error()})
 			return finish(err)
@@ -167,7 +167,7 @@ func (a *app) profileCheckCommand() *cobra.Command {
 		}
 		var zone dns.Zone
 		if a.zoneID != "" {
-			service := dns.Service{API: api, AccountID: p.AccountID, MaxBytes: a.maxBytes}
+			service := dns.Service{API: api, AccountID: p.AccountID}
 			zone, err = service.Zone(ctx, "", name, a.zoneID)
 		} else {
 			zone, err = namedZone(zones, name, p.AccountID)

@@ -119,9 +119,9 @@ type Change struct {
 type RecordPatch map[string]json.RawMessage
 
 type API interface {
-	ListZones(context.Context, string, string, int64) ([]Zone, error)
+	ListZones(context.Context, string, string) ([]Zone, error)
 	GetZone(context.Context, string) (Zone, error)
-	ListRecords(context.Context, string, Query, int64) ([]Record, error)
+	ListRecords(context.Context, string, Query) ([]Record, error)
 	GetRecord(context.Context, string, string) (Record, error)
 	CreateRecord(context.Context, string, RecordPatch) (Record, error)
 	UpdateRecord(context.Context, string, string, RecordPatch) (Record, error)
@@ -132,5 +132,4 @@ type API interface {
 type Service struct {
 	API       API
 	AccountID string
-	MaxBytes  int64
 }

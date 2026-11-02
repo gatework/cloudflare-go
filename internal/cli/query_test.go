@@ -48,7 +48,7 @@ func TestOversizedBINDDoesNotReplaceOutput(t *testing.T) {
 		t.Fatal(err)
 	}
 	code, out, diagnostic := command(t, &apiFixture{}, filepath.Join(dir, "config.json"), "dns", "dump", "example.com", "--max-bytes", "256", "--output", path, "--overwrite")
-	if code != 1 || out != "" || !strings.Contains(diagnostic, "BIND 结果超过") {
+	if code != 1 || out != "" || !strings.Contains(diagnostic, "max-bytes") {
 		t.Fatal(code, out, diagnostic)
 	}
 	data, err := os.ReadFile(path)

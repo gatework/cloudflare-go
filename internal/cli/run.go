@@ -51,6 +51,8 @@ type app struct {
 	spreadsheet bool
 	timeout     time.Duration
 	maxBytes    int64
+	responseCtx context.Context
+	stopBudget  context.CancelFunc
 }
 
 func Run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer) int {
@@ -70,8 +72,14 @@ func (a *app) execute(ctx context.Context, args []string) int {
 	root.SetOut(a.out)
 	root.SetErr(a.err)
 	err := root.ExecuteContext(ctx)
+	if a.stopBudget != nil {
+		defer a.stopBudget()
+	}
 	if err == nil {
 		return 0
+	}
+	if a.responseCtx != nil && errors.Is(context.Cause(a.responseCtx), cloudflare.ErrResponseBudget) && !errors.Is(err, dns.ErrUncertain) {
+		err = cloudflare.ErrResponseBudget
 	}
 	_, _ = fmt.Fprintln(a.err, err)
 	// Cancellation after sending a mutation cannot establish that it failed.
@@ -116,6 +124,8 @@ func (a *app) command() *cobra.Command {
 				}
 			}
 		}
+		a.responseCtx, a.stopBudget = cloudflare.WithResponseBudget(cmd.Context(), a.maxBytes)
+		cmd.SetContext(a.responseCtx)
 		return nil
 	}
 	root.CompletionOptions.DisableDefaultCmd = true
@@ -131,7 +141,7 @@ func (a *app) command() *cobra.Command {
 	f.BoolVar(&a.overwrite, "overwrite", false, "允许原子替换已有输出文件")
 	f.BoolVar(&a.spreadsheet, "spreadsheet-safe", false, "CSV 对公式前缀增加单引号，显式改变单元格值")
 	f.DurationVar(&a.timeout, "timeout", 0, "操作总预算（含编码与发布检查），默认 2m，dump 为 10m")
-	f.Int64Var(&a.maxBytes, "max-bytes", 256<<20, "原始数据收集字节上限（含 Zone/BIND），超过时失败，不截断")
+	f.Int64Var(&a.maxBytes, "max-bytes", cloudflare.DefaultMaxBytes, "本次命令所有 API 响应正文的累计字节上限（含重试/Zone/BIND），超过时失败")
 	root.AddCommand(&cobra.Command{Use: "version", Args: cobra.NoArgs, RunE: func(*cobra.Command, []string) error {
 		_, err := fmt.Fprintf(a.out, "cloudflare-go %s (%s), cloudflare/cloudflare-go v7.13.1\n", Version, Commit)
 		return err

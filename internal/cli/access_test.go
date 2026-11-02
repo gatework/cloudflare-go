@@ -22,7 +22,7 @@ type accessFixture struct {
 	onRead          func()
 }
 
-func (f *accessFixture) ListZones(_ context.Context, name, account string, _ int64) ([]dns.Zone, error) {
+func (f *accessFixture) ListZones(_ context.Context, name, account string) ([]dns.Zone, error) {
 	f.lists++
 	zones := []dns.Zone{}
 	for _, z := range f.zones {

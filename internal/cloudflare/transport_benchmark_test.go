@@ -2,6 +2,7 @@ package cloudflare
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -26,15 +27,17 @@ func BenchmarkResponseValidation(b *testing.B) {
 	}
 	body.WriteString(`],"result_info":{"page":1,"total_pages":10}}`)
 	base := transport{base: responseFixture(body.String())}
-	ctx, _ := callContext(b.Context())
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, BaseURL+"zones/zone/dns_records", nil)
+	request, err := http.NewRequestWithContext(b.Context(), http.MethodGet, BaseURL+"zones/zone/dns_records", nil)
 	if err != nil {
 		b.Fatal(err)
 	}
 	b.ReportAllocs()
 	b.SetBytes(int64(body.Len()))
 	for b.Loop() {
-		response, err := base.RoundTrip(request)
+		ctx, stop := WithResponseBudget(b.Context(), DefaultMaxBytes)
+		ctx = context.WithValue(ctx, metadataKey{}, &metadata{})
+		response, err := base.RoundTrip(request.Clone(ctx))
+		stop()
 		if err != nil {
 			b.Fatal(err)
 		}

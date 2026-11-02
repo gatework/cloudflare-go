@@ -7,7 +7,6 @@ import (
 	"unicode/utf8"
 
 	"github.com/gatework/cloudflare-go/internal/config"
-	"github.com/gatework/cloudflare-go/internal/dns"
 	"github.com/spf13/cobra"
 )
 
@@ -72,34 +71,6 @@ func (a *app) preflight(cmd *cobra.Command, args []string) error {
 				return usage(name + " 应为 32 位十六进制 ID")
 			}
 		}
-	}
-	if cmd.Flags().Changed("type") {
-		values, _ := cmd.Flags().GetStringSlice("type")
-		if len(values) == 0 {
-			return usage("type 不能为空")
-		}
-		if (cmd.Name() == "create" || cmd.Name() == "update") && len(values) != 1 {
-			return usage("单条写入只允许一种 type")
-		}
-		for _, value := range values {
-			if _, err := dns.Type(value); err != nil {
-				return &usageError{err}
-			}
-		}
-	}
-	if cmd.Flags().Changed("file") {
-		value, _ := cmd.Flags().GetString("file")
-		if value == "" {
-			return usage("file 路径不能为空")
-		}
-		for _, flag := range strings.Fields("content content-file ttl proxied comment tag clear-tags new-name target params priority weight port caa-flags caa-tag caa-value") {
-			if cmd.Flags().Changed(flag) {
-				return usage("--file 不能与 --" + flag + " 混用")
-			}
-		}
-	}
-	if cmd.Flags().Changed("content") && cmd.Flags().Changed("content-file") {
-		return usage("content 与 content-file 互斥")
 	}
 	return nil
 }

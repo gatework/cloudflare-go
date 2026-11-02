@@ -39,13 +39,6 @@ func (s *Service) Prepare(ctx context.Context, z Zone, action string, selector S
 				}
 				patch["type"] = json.RawMessage(quote(before.Type))
 			}
-			if before.Type == "MX" {
-				var fields map[string]json.RawMessage
-				if json.Unmarshal(patch["data"], &fields) == nil && len(fields) == 1 && fields["priority"] != nil {
-					patch["priority"] = fields["priority"]
-					delete(patch, "data")
-				}
-			}
 		}
 	}
 	if action != "delete" {
@@ -72,7 +65,7 @@ func (s *Service) Prepare(ctx context.Context, z Zone, action string, selector S
 			q.Exact = true
 			_ = json.Unmarshal(patch["type"], &typ)
 			q.Types = []string{typ}
-			existing, err := s.API.ListRecords(ctx, z.ID, q, s.MaxBytes)
+			existing, err := s.API.ListRecords(ctx, z.ID, q)
 			if err != nil {
 				return change, err
 			}

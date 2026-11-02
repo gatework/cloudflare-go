@@ -15,7 +15,7 @@ type fakeAPI struct {
 	last     RecordPatch
 }
 
-func (f *fakeAPI) ListZones(_ context.Context, name, account string, _ int64) ([]Zone, error) {
+func (f *fakeAPI) ListZones(_ context.Context, name, account string) ([]Zone, error) {
 	out := []Zone{}
 	for _, z := range f.zones {
 		if (name == "" || z.Name == name) && (account == "" || z.AccountID == account) {
@@ -32,7 +32,7 @@ func (f *fakeAPI) GetZone(_ context.Context, id string) (Zone, error) {
 	}
 	return Zone{}, ErrNotFound
 }
-func (f *fakeAPI) ListRecords(_ context.Context, _ string, q Query, _ int64) ([]Record, error) {
+func (f *fakeAPI) ListRecords(_ context.Context, _ string, q Query) ([]Record, error) {
 	out := []Record{}
 	for _, r := range f.records {
 		if q.Match(r) {

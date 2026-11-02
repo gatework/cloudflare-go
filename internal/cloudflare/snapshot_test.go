@@ -47,7 +47,7 @@ func TestFilteredDuplicateStillDetectsConcurrentChange(t *testing.T) {
 			return &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": {"application/json"}}, Body: io.NopCloser(strings.NewReader(body)), Request: r}, nil
 		})
 		c := New("fixture", "", base)
-		result, err := c.ListRecords(t.Context(), zoneID, dns.Query{Types: []string{"A", "AAAA"}}, 1<<20)
+		result, err := c.ListRecords(t.Context(), zoneID, dns.Query{Types: []string{"A", "AAAA"}})
 		c.Close()
 		if changed && !errors.Is(err, dns.ErrConflict) || !changed && (err != nil || len(result) != 0) {
 			t.Fatal(changed, result, err)
@@ -70,7 +70,7 @@ func TestTagAndCommentFiltersUseAPIAndLocalChecks(t *testing.T) {
 	c := New("fixture", "", base)
 	defer c.Close()
 	comment := "Review"
-	result, err := c.ListRecords(t.Context(), zoneID, dns.Query{Tags: []string{"owner:Ops", "env:prod"}, Comment: &comment}, 1<<20)
+	result, err := c.ListRecords(t.Context(), zoneID, dns.Query{Tags: []string{"owner:Ops", "env:prod"}, Comment: &comment})
 	if err != nil || len(result) != 1 || result[0].ID != "1" {
 		t.Fatal(result, err)
 	}
@@ -80,7 +80,9 @@ func TestZoneListHonorsSizeBudget(t *testing.T) {
 	base := responseFixture(`{"success":true,"result":[{"id":"1","name":"example.com"}],"result_info":{"page":1,"total_pages":1}}`)
 	c := New("fixture", "", base)
 	defer c.Close()
-	if _, err := c.ListZones(t.Context(), "", "", 10); err == nil {
+	limited, stop := WithResponseBudget(t.Context(), 10)
+	defer stop()
+	if _, err := c.ListZones(limited, "", ""); err == nil {
 		t.Fatal("zone budget ignored")
 	}
 }

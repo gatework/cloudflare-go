@@ -13,8 +13,9 @@ import (
 	"github.com/gatework/cloudflare-go/internal/dns"
 )
 
-func (c *Client) ListRecords(ctx context.Context, id string, q dns.Query, maxBytes int64) ([]dns.Record, error) {
-	ctx, m := callContext(ctx)
+func (c *Client) ListRecords(ctx context.Context, id string, q dns.Query) ([]dns.Record, error) {
+	ctx, m, stop := callContext(ctx)
+	defer stop()
 	p := sdkdns.RecordListParams{}
 	p.ZoneID.Value = id
 	p.ZoneID.Present = true
@@ -56,17 +57,17 @@ func (c *Client) ListRecords(ctx context.Context, id string, q dns.Query, maxByt
 			p.Name.Value.Endswith.Present = true
 		}
 	}
-	if maxBytes <= 0 {
-		maxBytes = 256 << 20
-	}
-	var total int64
 	seen := map[string]recordSnapshot{}
 	records := []dns.Record{}
 	pagination := pageTracker{}
 	for page := 1; ; page++ {
 		p.Page.Value = float64(page)
 		p.Page.Present = true
-		batch, err := c.records.List(ctx, p, option.WithMaxRetries(2))
+		// Bypass generated unions while keeping SDK parameters and request behavior.
+		var batch struct {
+			Result []json.RawMessage `json:"result"`
+		}
+		_, err := c.records.List(ctx, p, option.WithMaxRetries(2), option.WithResponseBodyInto(&batch))
 		if err != nil {
 			return nil, failure(ctx, m, err)
 		}
@@ -75,16 +76,11 @@ func (c *Client) ListRecords(ctx context.Context, id string, q dns.Query, maxByt
 			return nil, err
 		}
 		fresh := 0
-		for _, value := range batch.Result {
+		for _, raw := range batch.Result {
 			if err := ctx.Err(); err != nil {
 				return nil, err
 			}
-			raw := value.JSON.RawJSON()
-			total += int64(len(raw))
-			if total > maxBytes {
-				return nil, errors.New("记录结果超过 --max-bytes；请缩小查询或提高额度")
-			}
-			record, err := dns.ParseRecord([]byte(raw))
+			record, err := dns.ParseRecord(raw)
 			if err != nil {
 				return nil, err
 			}
@@ -139,83 +135,87 @@ func (c *Client) ListRecords(ctx context.Context, id string, q dns.Query, maxByt
 	return records, nil
 }
 func (c *Client) GetRecord(ctx context.Context, zone, id string) (dns.Record, error) {
-	ctx, m := callContext(ctx)
+	ctx, m, stop := callContext(ctx)
+	defer stop()
 	p := sdkdns.RecordGetParams{}
 	p.ZoneID.Value = zone
 	p.ZoneID.Present = true
-	result, err := c.records.Get(ctx, id, p, option.WithMaxRetries(2))
+	var result recordEnvelope
+	_, err := c.records.Get(ctx, id, p, option.WithMaxRetries(2), option.WithResponseBodyInto(&result))
 	if err != nil {
 		return dns.Record{}, failure(ctx, m, err)
 	}
-	if result == nil {
-		return dns.Record{}, protocolError(m)
-	}
-	record, err := dns.ParseRecord([]byte(result.JSON.RawJSON()))
+	record, err := dns.ParseRecord(result.Result)
 	if err != nil || !strings.EqualFold(record.ID, id) {
 		return dns.Record{}, protocolError(m)
 	}
 	return record, nil
 }
 func (c *Client) CreateRecord(ctx context.Context, zone string, patch dns.RecordPatch) (dns.Record, error) {
-	ctx, m := callContext(ctx)
+	ctx, m, stop := callContext(ctx)
+	defer stop()
 	p := sdkdns.RecordNewParams{}
 	p.ZoneID.Value = zone
 	p.ZoneID.Present = true
 	body, err := json.Marshal(patch)
 	if err != nil {
-		return dns.Record{}, err
+		return dns.Record{}, failure(ctx, m, err)
 	}
-	result, err := c.records.New(ctx, p, option.WithRequestBody("application/json", body))
+	var result recordEnvelope
+	_, err = c.records.New(ctx, p, option.WithRequestBody("application/json", body), option.WithResponseBodyInto(&result))
 	if err != nil {
 		return dns.Record{}, failure(ctx, m, err)
 	}
-	if result == nil {
-		return dns.Record{}, protocolError(m)
-	}
-	record, err := dns.ParseRecord([]byte(result.JSON.RawJSON()))
+	record, err := dns.ParseRecord(result.Result)
 	if err != nil {
 		return dns.Record{}, protocolError(m)
 	}
 	return record, nil
 }
 func (c *Client) UpdateRecord(ctx context.Context, zone, id string, patch dns.RecordPatch) (dns.Record, error) {
-	ctx, m := callContext(ctx)
+	ctx, m, stop := callContext(ctx)
+	defer stop()
 	p := sdkdns.RecordEditParams{}
 	p.ZoneID.Value = zone
 	p.ZoneID.Present = true
 	body, err := json.Marshal(patch)
 	if err != nil {
-		return dns.Record{}, err
+		return dns.Record{}, failure(ctx, m, err)
 	}
-	result, err := c.records.Edit(ctx, id, p, option.WithRequestBody("application/json", body))
+	var result recordEnvelope
+	_, err = c.records.Edit(ctx, id, p, option.WithRequestBody("application/json", body), option.WithResponseBodyInto(&result))
 	if err != nil {
 		return dns.Record{}, failure(ctx, m, err)
 	}
-	if result == nil {
-		return dns.Record{}, protocolError(m)
-	}
-	record, err := dns.ParseRecord([]byte(result.JSON.RawJSON()))
+	record, err := dns.ParseRecord(result.Result)
 	if err != nil || !strings.EqualFold(record.ID, id) {
 		return dns.Record{}, protocolError(m)
 	}
 	return record, nil
 }
 func (c *Client) DeleteRecord(ctx context.Context, zone, id string) error {
-	ctx, m := callContext(ctx)
+	ctx, m, stop := callContext(ctx)
+	defer stop()
 	p := sdkdns.RecordDeleteParams{}
 	p.ZoneID.Value = zone
 	p.ZoneID.Present = true
-	result, err := c.records.Delete(ctx, id, p)
+	var result struct {
+		Result struct {
+			ID string `json:"id"`
+		} `json:"result"`
+	}
+	_, err := c.records.Delete(ctx, id, p, option.WithResponseBodyInto(&result))
 	if err != nil {
 		return failure(ctx, m, err)
 	}
-	if result == nil || !strings.EqualFold(result.ID, id) {
+	if !strings.EqualFold(result.Result.ID, id) {
 		return protocolError(m)
 	}
 	return nil
 }
 func (c *Client) ExportZone(ctx context.Context, id string) (string, error) {
-	ctx, m := callContext(ctx)
+	ctx, m, stop := callContext(ctx)
+	defer stop()
 	p := sdkdns.RecordExportParams{}
 	p.ZoneID.Value = id
 	p.ZoneID.Present = true
@@ -227,4 +227,8 @@ func (c *Client) ExportZone(ctx context.Context, id string) (string, error) {
 		return "", protocolError(m)
 	}
 	return *result, nil
+}
+
+type recordEnvelope struct {
+	Result json.RawMessage `json:"result"`
 }

@@ -21,12 +21,12 @@ func (*closingTransport) RoundTrip(*http.Request) (*http.Response, error) {
 }
 func (t *closingTransport) CloseIdleConnections() { t.closed = true }
 
-func TestCloseReleasesUnderlyingConnections(t *testing.T) {
+func TestClosePreservesBorrowedConnections(t *testing.T) {
 	base := &closingTransport{}
 	client := New("token", "", base)
 	client.Close()
-	if !base.closed {
-		t.Fatal("wrapped pool not closed")
+	if base.closed {
+		t.Fatal("closed a caller-owned pool")
 	}
 }
 
@@ -49,9 +49,9 @@ func TestIncompletePaginationFails(t *testing.T) {
 			defer client.Close()
 			var err error
 			if endpoint == "zones" {
-				_, err = client.ListZones(t.Context(), "", "", 1<<20)
+				_, err = client.ListZones(t.Context(), "", "")
 			} else {
-				_, err = client.ListRecords(t.Context(), zoneID, dns.Query{}, 1<<20)
+				_, err = client.ListRecords(t.Context(), zoneID, dns.Query{})
 			}
 			if err == nil || calls.Load() != 2 {
 				t.Fatal("incomplete result accepted", err, calls.Load())
@@ -83,7 +83,7 @@ func TestRejectMismatchedAPIIdentitiesAndShapes(t *testing.T) {
 			case "delete":
 				err = client.DeleteRecord(t.Context(), zoneID, recordID)
 			case "list":
-				_, err = client.ListRecords(t.Context(), zoneID, dns.Query{}, 1<<20)
+				_, err = client.ListRecords(t.Context(), zoneID, dns.Query{})
 			}
 			if err == nil {
 				t.Fatal("invalid identity/shape accepted")
@@ -110,7 +110,7 @@ func TestFiltersReachAPIAndStillMatchLocally(t *testing.T) {
 	client := New("token", server.URL+"/", server.Client().Transport)
 	defer client.Close()
 	proxied, content := false, "CaseSensitive"
-	records, err := client.ListRecords(t.Context(), zoneID, dns.Query{Domain: "example.com", Types: []string{"TXT"}, Proxied: &proxied, Content: &content}, 1<<20)
+	records, err := client.ListRecords(t.Context(), zoneID, dns.Query{Domain: "example.com", Types: []string{"TXT"}, Proxied: &proxied, Content: &content})
 	if err != nil || len(records) != 1 || records[0].ID != "1" {
 		t.Fatal(records, err)
 	}

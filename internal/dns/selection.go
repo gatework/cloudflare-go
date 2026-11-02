@@ -30,7 +30,7 @@ func (s *Service) Zone(ctx context.Context, domain, zoneName, zoneID string) (Zo
 				_, name, _ = strings.Cut(name, ".")
 				continue
 			}
-			zones, err := s.API.ListZones(ctx, name, s.AccountID, s.MaxBytes)
+			zones, err := s.API.ListZones(ctx, name, s.AccountID)
 			if err != nil {
 				return zone, err
 			}
@@ -73,7 +73,7 @@ func (s *Service) Select(ctx context.Context, z Zone, selector Selector) (Record
 		return record, nil
 	}
 	selector.Exact = true
-	records, err := s.API.ListRecords(ctx, z.ID, selector.Query, s.MaxBytes)
+	records, err := s.API.ListRecords(ctx, z.ID, selector.Query)
 	if err != nil {
 		return Record{}, err
 	}

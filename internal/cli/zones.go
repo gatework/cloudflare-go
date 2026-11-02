@@ -22,7 +22,7 @@ func (a *app) addZones(root *cobra.Command) {
 			return err
 		}
 		defer cancel()
-		zones, err := api.ListZones(ctx, "", p.AccountID, a.maxBytes)
+		zones, err := api.ListZones(ctx, "", p.AccountID)
 		if err != nil {
 			return err
 		}
@@ -61,7 +61,7 @@ func (a *app) addZones(root *cobra.Command) {
 			return err
 		}
 		defer cancel()
-		service := dns.Service{API: api, AccountID: p.AccountID, MaxBytes: a.maxBytes}
+		service := dns.Service{API: api, AccountID: p.AccountID}
 		zone, err := service.Zone(ctx, "", zoneName, a.zoneID)
 		if err != nil {
 			return err
